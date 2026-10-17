@@ -1,0 +1,896 @@
+{
+  "scope": "Every function in eight owned shared metrics/uncertainty/plot modules; data preprocessing and models audited by other agents.",
+  "validation": {
+    "command": "MPLBACKEND=Agg KERAS_BACKEND=torch .venv311/bin/python -m pytest -q test_audit_metrics.py test_scientific_regression.py test_pit.py test_uncertainty.py with module coverage",
+    "tests_passed": 88,
+    "coverage_artifact": "validation/audit-metrics-coverage.json",
+    "log": "validation/audit-metrics.log",
+    "junit": "validation/audit-metrics.xml",
+    "platform_limit": "Tests executed on Linux CPU; no native macOS/Windows or optional Cartopy execution in this agent."
+  },
+  "scientific_corrections": [
+    {
+      "module": "classifier_uq.py",
+      "issue": "Brier skill forecast/reference normalization and climatology mismatch",
+      "counterexample": "labels=[0,0,0,1], all forecasts=[.75,.25], num_classes=2: old skill=.625 although forecast equals climatology; corrected skill=0. Perfect forecast gives1."
+    },
+    {
+      "module": "classifier_uq.py",
+      "issue": "Class reliability conditions on true class and top-label event",
+      "counterexample": "labels=[0,1,0,1], all forecasts=[.75,.25]: old class0 curve=(.75,1); correct one-vs-rest reliability point=(.75,.5)."
+    },
+    {
+      "module": "regression_metrics.py",
+      "issue": "MAPE negative target denominator",
+      "counterexample": "truth=[-2,-4], prediction=[-1,-2]: old denominator1e-8 produced1.5e10 percent; correct MAPE=50 percent."
+    },
+    {
+      "module": "regression_uq.py",
+      "issue": "Rank-calibration bin centers and conditional standard deviations",
+      "counterexample": "Identical four-point uncertainty/error rankings with bins=2 require centers [.25,.75] and zero conditional std; old centers [.025,.525] and variance using a vector of other-bin means were wrong."
+    },
+    {
+      "module": "regression_uq.py",
+      "issue": "Dropped upper occupied prediction/spread bins, including all constant spreads",
+      "counterexample": "20 observations with sigma=1 all assigned outside the loop in old compute_skill_score; corrected count sum20 and RMSE1 for residual1."
+    },
+    {
+      "module": "regression_uq.py/classifier_uq.py",
+      "issue": "Unpaired missing-value filtering and sparse percentile windows",
+      "counterexample": "ale=[1,NaN,3,4], epi=[2,2,NaN,5] must retain pairs (1,2),(4,5); independent filtering fabricated pair(3,2). 5-95% clipping of two points may exclude every pair."
+    },
+    {
+      "module": "regression_metrics.py/pit.py",
+      "issue": "Zero-spread Gaussian edge semantics",
+      "counterexample": "sigma=0 has CRPS |y-mu| and right-continuous pointmass CDF 1[y>=mu]; scipy normal sigma0 otherwise gives NaN. Discrete PIT does not inherit continuous uniformity."
+    }
+  ],
+  "functions": [
+    {
+      "module": "mlguess/classifier_uq.py",
+      "function": "uq_results",
+      "line": 13,
+      "status": "tested",
+      "reviewed": true,
+      "notes": "Executed synthetic end-to-end entropy branch with saved PDF figures; source DataFrame unchanged. Evidential branch reviewed; same plotting paths.",
+      "tests": [
+        "mlguess/tests/test_audit_metrics.py::test_brier_climatology_and_perfect_forecast",
+        "mlguess/tests/test_audit_metrics.py::test_classification_bins_preserve_endpoints_and_constant_values",
+        "mlguess/tests/test_audit_metrics.py::test_attribution_uses_class_event_not_true_class_subset",
+        "mlguess/tests/test_audit_metrics.py::test_classifier_end_to_end_diagnostics_do_not_mutate_input",
+        "mlguess/tests/test_audit_metrics.py::test_uncertainty_plot_filters_paired_values"
+      ],
+      "execution_scope": "Linux CPU, Python3.11, NumPy2; synthetic data"
+    },
+    {
+      "module": "mlguess/classifier_uq.py",
+      "function": "_classification_inputs",
+      "line": 87,
+      "status": "tested",
+      "reviewed": true,
+      "notes": "Reviewed validation and array semantics; exercised through the listed module tests.",
+      "tests": [
+        "mlguess/tests/test_audit_metrics.py::test_brier_climatology_and_perfect_forecast",
+        "mlguess/tests/test_audit_metrics.py::test_classification_bins_preserve_endpoints_and_constant_values",
+        "mlguess/tests/test_audit_metrics.py::test_attribution_uses_class_event_not_true_class_subset",
+        "mlguess/tests/test_audit_metrics.py::test_classifier_end_to_end_diagnostics_do_not_mutate_input",
+        "mlguess/tests/test_audit_metrics.py::test_uncertainty_plot_filters_paired_values"
+      ],
+      "execution_scope": "Linux CPU, Python3.11, NumPy2; synthetic data"
+    },
+    {
+      "module": "mlguess/classifier_uq.py",
+      "function": "sort_arr",
+      "line": 99,
+      "status": "tested",
+      "reviewed": true,
+      "notes": "Includes zero/minimum/maximum and constant values; global sample climatology is held fixed for each bin. Original dropped every constant sample and upper endpoints.",
+      "tests": [
+        "mlguess/tests/test_audit_metrics.py::test_brier_climatology_and_perfect_forecast",
+        "mlguess/tests/test_audit_metrics.py::test_classification_bins_preserve_endpoints_and_constant_values",
+        "mlguess/tests/test_audit_metrics.py::test_attribution_uses_class_event_not_true_class_subset",
+        "mlguess/tests/test_audit_metrics.py::test_classifier_end_to_end_diagnostics_do_not_mutate_input",
+        "mlguess/tests/test_audit_metrics.py::test_uncertainty_plot_filters_paired_values"
+      ],
+      "execution_scope": "Linux CPU, Python3.11, NumPy2; synthetic data"
+    },
+    {
+      "module": "mlguess/classifier_uq.py",
+      "function": "brier_multi",
+      "line": 133,
+      "status": "tested",
+      "reviewed": true,
+      "notes": "Forecast and climatological reference both use class-mean squared error. Climatology is a per-class frequency vector. Zero reference means undefined skill (NaN).",
+      "tests": [
+        "mlguess/tests/test_audit_metrics.py::test_brier_climatology_and_perfect_forecast",
+        "mlguess/tests/test_audit_metrics.py::test_classification_bins_preserve_endpoints_and_constant_values",
+        "mlguess/tests/test_audit_metrics.py::test_attribution_uses_class_event_not_true_class_subset",
+        "mlguess/tests/test_audit_metrics.py::test_classifier_end_to_end_diagnostics_do_not_mutate_input",
+        "mlguess/tests/test_audit_metrics.py::test_uncertainty_plot_filters_paired_values"
+      ],
+      "execution_scope": "Linux CPU, Python3.11, NumPy2; synthetic data"
+    },
+    {
+      "module": "mlguess/classifier_uq.py",
+      "function": "brier_skill_score_multiclass",
+      "line": 153,
+      "status": "tested",
+      "reviewed": true,
+      "notes": "Preserves mean of individual one-vs-rest skills; probability columns define classes, including absent labels. Zero per-class baseline produces NaN rather than division error.",
+      "tests": [
+        "mlguess/tests/test_audit_metrics.py::test_brier_climatology_and_perfect_forecast",
+        "mlguess/tests/test_audit_metrics.py::test_classification_bins_preserve_endpoints_and_constant_values",
+        "mlguess/tests/test_audit_metrics.py::test_attribution_uses_class_event_not_true_class_subset",
+        "mlguess/tests/test_audit_metrics.py::test_classifier_end_to_end_diagnostics_do_not_mutate_input",
+        "mlguess/tests/test_audit_metrics.py::test_uncertainty_plot_filters_paired_values"
+      ],
+      "execution_scope": "Linux CPU, Python3.11, NumPy2; synthetic data"
+    },
+    {
+      "module": "mlguess/classifier_uq.py",
+      "function": "plot_uncertainties",
+      "line": 171,
+      "status": "tested",
+      "reviewed": true,
+      "notes": "Paired finite filtering; sparse quantile-clipped sample fallback and safe positive LogNorm; standard labels available.",
+      "tests": [
+        "mlguess/tests/test_audit_metrics.py::test_brier_climatology_and_perfect_forecast",
+        "mlguess/tests/test_audit_metrics.py::test_classification_bins_preserve_endpoints_and_constant_values",
+        "mlguess/tests/test_audit_metrics.py::test_attribution_uses_class_event_not_true_class_subset",
+        "mlguess/tests/test_audit_metrics.py::test_classifier_end_to_end_diagnostics_do_not_mutate_input",
+        "mlguess/tests/test_audit_metrics.py::test_uncertainty_plot_filters_paired_values"
+      ],
+      "execution_scope": "Linux CPU, Python3.11, NumPy2; synthetic data"
+    },
+    {
+      "module": "mlguess/classifier_uq.py",
+      "function": "classifier_attribution",
+      "line": 262,
+      "status": "tested",
+      "reviewed": true,
+      "notes": "Corrected class-event calibration over all samples, using each column probability and its indicator, rather than top-label accuracy within true-class subsets.",
+      "tests": [
+        "mlguess/tests/test_audit_metrics.py::test_brier_climatology_and_perfect_forecast",
+        "mlguess/tests/test_audit_metrics.py::test_classification_bins_preserve_endpoints_and_constant_values",
+        "mlguess/tests/test_audit_metrics.py::test_attribution_uses_class_event_not_true_class_subset",
+        "mlguess/tests/test_audit_metrics.py::test_classifier_end_to_end_diagnostics_do_not_mutate_input",
+        "mlguess/tests/test_audit_metrics.py::test_uncertainty_plot_filters_paired_values"
+      ],
+      "execution_scope": "Linux CPU, Python3.11, NumPy2; synthetic data"
+    },
+    {
+      "module": "mlguess/classifier_uq.py",
+      "function": "classifier_skill_scores",
+      "line": 347,
+      "status": "tested",
+      "reviewed": true,
+      "notes": "Rescaled uncertainty axis correctly labeled; constant spread supported. BSS from corrected shared calculation.",
+      "tests": [
+        "mlguess/tests/test_audit_metrics.py::test_brier_climatology_and_perfect_forecast",
+        "mlguess/tests/test_audit_metrics.py::test_classification_bins_preserve_endpoints_and_constant_values",
+        "mlguess/tests/test_audit_metrics.py::test_attribution_uses_class_event_not_true_class_subset",
+        "mlguess/tests/test_audit_metrics.py::test_classifier_end_to_end_diagnostics_do_not_mutate_input",
+        "mlguess/tests/test_audit_metrics.py::test_uncertainty_plot_filters_paired_values"
+      ],
+      "execution_scope": "Linux CPU, Python3.11, NumPy2; synthetic data"
+    },
+    {
+      "module": "mlguess/classifier_uq.py",
+      "function": "classifier_discard_fraction",
+      "line": 402,
+      "status": "tested",
+      "reviewed": true,
+      "notes": "Reference climatology fixed across discarded subsets; removal percentages stay within [0,100]. Class and uncertainty subplot counts supported.",
+      "tests": [
+        "mlguess/tests/test_audit_metrics.py::test_brier_climatology_and_perfect_forecast",
+        "mlguess/tests/test_audit_metrics.py::test_classification_bins_preserve_endpoints_and_constant_values",
+        "mlguess/tests/test_audit_metrics.py::test_attribution_uses_class_event_not_true_class_subset",
+        "mlguess/tests/test_audit_metrics.py::test_classifier_end_to_end_diagnostics_do_not_mutate_input",
+        "mlguess/tests/test_audit_metrics.py::test_uncertainty_plot_filters_paired_values"
+      ],
+      "execution_scope": "Linux CPU, Python3.11, NumPy2; synthetic data"
+    },
+    {
+      "module": "mlguess/classifier_uq.py",
+      "function": "_class_reliability",
+      "line": 479,
+      "status": "tested",
+      "reviewed": true,
+      "notes": "Direct extracted-curve counterexample verifies mean forecast .75 versus empirical class frequency .5; Original 1/sqrt(count) display-error convention preserved.",
+      "tests": [
+        "mlguess/tests/test_audit_metrics.py::test_brier_climatology_and_perfect_forecast",
+        "mlguess/tests/test_audit_metrics.py::test_classification_bins_preserve_endpoints_and_constant_values",
+        "mlguess/tests/test_audit_metrics.py::test_attribution_uses_class_event_not_true_class_subset",
+        "mlguess/tests/test_audit_metrics.py::test_classifier_end_to_end_diagnostics_do_not_mutate_input",
+        "mlguess/tests/test_audit_metrics.py::test_uncertainty_plot_filters_paired_values"
+      ],
+      "execution_scope": "Linux CPU, Python3.11, NumPy2; synthetic data"
+    },
+    {
+      "module": "mlguess/regression_metrics.py",
+      "function": "_regression_arrays",
+      "line": 9,
+      "status": "tested",
+      "reviewed": true,
+      "notes": "Normalizes 1D to (samples,1); rejects broadcasting, nonfinite data and negative variance.",
+      "tests": [
+        "mlguess/tests/test_audit_metrics.py::test_regression_negative_targets_and_column_equivalence",
+        "mlguess/tests/test_audit_metrics.py::test_regression_deterministic_and_multioutput",
+        "mlguess/tests/test_audit_metrics.py::test_regression_rejects_invalid_distributions",
+        "mlguess/tests/test_audit_metrics.py::test_spread_summary_preserves_zero_scores_and_filters_paired_rows"
+      ],
+      "execution_scope": "Linux CPU, Python3.11, NumPy2; synthetic data"
+    },
+    {
+      "module": "mlguess/regression_metrics.py",
+      "function": "_gaussian_crps",
+      "line": 23,
+      "status": "tested",
+      "reviewed": true,
+      "notes": "Checked against closed Gaussian CRPS equation and exact deterministic limit |y-mu|.",
+      "tests": [
+        "mlguess/tests/test_audit_metrics.py::test_regression_negative_targets_and_column_equivalence",
+        "mlguess/tests/test_audit_metrics.py::test_regression_deterministic_and_multioutput",
+        "mlguess/tests/test_audit_metrics.py::test_regression_rejects_invalid_distributions",
+        "mlguess/tests/test_audit_metrics.py::test_spread_summary_preserves_zero_scores_and_filters_paired_rows"
+      ],
+      "execution_scope": "Linux CPU, Python3.11, NumPy2; synthetic data"
+    },
+    {
+      "module": "mlguess/regression_metrics.py",
+      "function": "regression_metrics",
+      "line": 32,
+      "status": "tested",
+      "reviewed": true,
+      "notes": "MAPE denominator is absolute target; 1D/multioutput shape consistency; uncertainty is variance. Undefined R2 is NaN, not a synthetic penalty.",
+      "tests": [
+        "mlguess/tests/test_audit_metrics.py::test_regression_negative_targets_and_column_equivalence",
+        "mlguess/tests/test_audit_metrics.py::test_regression_deterministic_and_multioutput",
+        "mlguess/tests/test_audit_metrics.py::test_regression_rejects_invalid_distributions",
+        "mlguess/tests/test_audit_metrics.py::test_spread_summary_preserves_zero_scores_and_filters_paired_rows"
+      ],
+      "execution_scope": "Linux CPU, Python3.11, NumPy2; synthetic data"
+    },
+    {
+      "module": "mlguess/regression_metrics.py",
+      "function": "rmse_crps_skill_scores",
+      "line": 67,
+      "status": "tested",
+      "reviewed": true,
+      "notes": "Preserves upstream unweighted R2 against occupied spread-bin left edges, averaged over outputs; not a universal calibration statistic. Fewer than two occupied bins -> NaN.",
+      "tests": [
+        "mlguess/tests/test_audit_metrics.py::test_regression_negative_targets_and_column_equivalence",
+        "mlguess/tests/test_audit_metrics.py::test_regression_deterministic_and_multioutput",
+        "mlguess/tests/test_audit_metrics.py::test_regression_rejects_invalid_distributions",
+        "mlguess/tests/test_audit_metrics.py::test_spread_summary_preserves_zero_scores_and_filters_paired_rows"
+      ],
+      "execution_scope": "Linux CPU, Python3.11, NumPy2; synthetic data"
+    },
+    {
+      "module": "mlguess/regression_metrics.py",
+      "function": "calculate_skill_score",
+      "line": 80,
+      "status": "tested",
+      "reviewed": true,
+      "notes": "Paired finite filtering; explicit single-output input; exact zero-sigma CRPS; positive floor applies only to logarithmic bin assignment. Existing bin-left-edge convention retained.",
+      "tests": [
+        "mlguess/tests/test_audit_metrics.py::test_regression_negative_targets_and_column_equivalence",
+        "mlguess/tests/test_audit_metrics.py::test_regression_deterministic_and_multioutput",
+        "mlguess/tests/test_audit_metrics.py::test_regression_rejects_invalid_distributions",
+        "mlguess/tests/test_audit_metrics.py::test_spread_summary_preserves_zero_scores_and_filters_paired_rows"
+      ],
+      "execution_scope": "Linux CPU, Python3.11, NumPy2; synthetic data"
+    },
+    {
+      "module": "mlguess/regression_uq.py",
+      "function": "compute_results",
+      "line": 14,
+      "status": "tested",
+      "reviewed": true,
+      "notes": "Executed all regression diagnostic branches using synthetic single-target data, negative means, and two ensemble members; caller DataFrame unchanged; generated eight PNG figures.",
+      "tests": [
+        "mlguess/tests/test_audit_metrics.py::test_regression_diagnostics_single_target_and_negative_predictions",
+        "mlguess/tests/test_audit_metrics.py::test_coverage_and_rank_calibration_centers_and_spreads",
+        "mlguess/tests/test_audit_metrics.py::test_spread_skill_constant_and_right_endpoint",
+        "mlguess/tests/test_audit_metrics.py::test_regression_attribution_keeps_maximum_bin_and_constant_predictions",
+        "mlguess/tests/test_audit_metrics.py::test_uncertainty_plot_filters_paired_values"
+      ],
+      "execution_scope": "Linux CPU, Python3.11, NumPy2; synthetic data"
+    },
+    {
+      "module": "mlguess/regression_uq.py",
+      "function": "compute_coverage",
+      "line": 99,
+      "status": "tested",
+      "reviewed": true,
+      "notes": "Reviewed sorted cumulative means and removed-fraction convention; direct numerical rank checks.",
+      "tests": [
+        "mlguess/tests/test_audit_metrics.py::test_regression_diagnostics_single_target_and_negative_predictions",
+        "mlguess/tests/test_audit_metrics.py::test_coverage_and_rank_calibration_centers_and_spreads",
+        "mlguess/tests/test_audit_metrics.py::test_spread_skill_constant_and_right_endpoint",
+        "mlguess/tests/test_audit_metrics.py::test_regression_attribution_keeps_maximum_bin_and_constant_predictions",
+        "mlguess/tests/test_audit_metrics.py::test_uncertainty_plot_filters_paired_values"
+      ],
+      "execution_scope": "Linux CPU, Python3.11, NumPy2; synthetic data"
+    },
+    {
+      "module": "mlguess/regression_uq.py",
+      "function": "calibration_curve",
+      "line": 109,
+      "status": "tested",
+      "reviewed": true,
+      "notes": "Uses actual [0,1] histogram bin centers and within-bin weighted conditional standard deviations. Empty bins are NaN. Identity ranking produces zero conditional spread.",
+      "tests": [
+        "mlguess/tests/test_audit_metrics.py::test_regression_diagnostics_single_target_and_negative_predictions",
+        "mlguess/tests/test_audit_metrics.py::test_coverage_and_rank_calibration_centers_and_spreads",
+        "mlguess/tests/test_audit_metrics.py::test_spread_skill_constant_and_right_endpoint",
+        "mlguess/tests/test_audit_metrics.py::test_regression_attribution_keeps_maximum_bin_and_constant_predictions",
+        "mlguess/tests/test_audit_metrics.py::test_uncertainty_plot_filters_paired_values"
+      ],
+      "execution_scope": "Linux CPU, Python3.11, NumPy2; synthetic data"
+    },
+    {
+      "module": "mlguess/regression_uq.py",
+      "function": "calibration",
+      "line": 131,
+      "status": "tested",
+      "reviewed": true,
+      "notes": "Synthetic pipeline executes cumulative MAE for A/E/total standard deviations; total computed sqrt(a\u00b2+e\u00b2). No mutation of caller data.",
+      "tests": [
+        "mlguess/tests/test_audit_metrics.py::test_regression_diagnostics_single_target_and_negative_predictions",
+        "mlguess/tests/test_audit_metrics.py::test_coverage_and_rank_calibration_centers_and_spreads",
+        "mlguess/tests/test_audit_metrics.py::test_spread_skill_constant_and_right_endpoint",
+        "mlguess/tests/test_audit_metrics.py::test_regression_attribution_keeps_maximum_bin_and_constant_predictions",
+        "mlguess/tests/test_audit_metrics.py::test_uncertainty_plot_filters_paired_values"
+      ],
+      "execution_scope": "Linux CPU, Python3.11, NumPy2; synthetic data"
+    },
+    {
+      "module": "mlguess/regression_uq.py",
+      "function": "plot_uncertainties",
+      "line": 176,
+      "status": "tested",
+      "reviewed": true,
+      "notes": "Pairs nonfinite masks instead of independently dropping and misaligning samples; sparse range fallback.",
+      "tests": [
+        "mlguess/tests/test_audit_metrics.py::test_regression_diagnostics_single_target_and_negative_predictions",
+        "mlguess/tests/test_audit_metrics.py::test_coverage_and_rank_calibration_centers_and_spreads",
+        "mlguess/tests/test_audit_metrics.py::test_spread_skill_constant_and_right_endpoint",
+        "mlguess/tests/test_audit_metrics.py::test_regression_attribution_keeps_maximum_bin_and_constant_predictions",
+        "mlguess/tests/test_audit_metrics.py::test_uncertainty_plot_filters_paired_values"
+      ],
+      "execution_scope": "Linux CPU, Python3.11, NumPy2; synthetic data"
+    },
+    {
+      "module": "mlguess/regression_uq.py",
+      "function": "compute_skill_score",
+      "line": 328,
+      "status": "tested",
+      "reviewed": true,
+      "notes": "Original 5th-to-95th percentile spread window preserved; includes upper endpoint and constant spread, empty bins use NaN rather than misleading zero RMSE.",
+      "tests": [
+        "mlguess/tests/test_audit_metrics.py::test_regression_diagnostics_single_target_and_negative_predictions",
+        "mlguess/tests/test_audit_metrics.py::test_coverage_and_rank_calibration_centers_and_spreads",
+        "mlguess/tests/test_audit_metrics.py::test_spread_skill_constant_and_right_endpoint",
+        "mlguess/tests/test_audit_metrics.py::test_regression_attribution_keeps_maximum_bin_and_constant_predictions",
+        "mlguess/tests/test_audit_metrics.py::test_uncertainty_plot_filters_paired_values"
+      ],
+      "execution_scope": "Linux CPU, Python3.11, NumPy2; synthetic data"
+    },
+    {
+      "module": "mlguess/regression_uq.py",
+      "function": "plot_skill_score",
+      "line": 378,
+      "status": "tested",
+      "reviewed": true,
+      "notes": "Single-output arrays retain 2D shape; plots occupied bins only; total std sqrt(a\u00b2+e\u00b2). Tested 1D and (N,1) forms.",
+      "tests": [
+        "mlguess/tests/test_audit_metrics.py::test_regression_diagnostics_single_target_and_negative_predictions",
+        "mlguess/tests/test_audit_metrics.py::test_coverage_and_rank_calibration_centers_and_spreads",
+        "mlguess/tests/test_audit_metrics.py::test_spread_skill_constant_and_right_endpoint",
+        "mlguess/tests/test_audit_metrics.py::test_regression_attribution_keeps_maximum_bin_and_constant_predictions",
+        "mlguess/tests/test_audit_metrics.py::test_uncertainty_plot_filters_paired_values"
+      ],
+      "execution_scope": "Linux CPU, Python3.11, NumPy2; synthetic data"
+    },
+    {
+      "module": "mlguess/regression_uq.py",
+      "function": "discard_fraction",
+      "line": 474,
+      "status": "tested",
+      "reviewed": true,
+      "notes": "Maintains removed-fraction convention; removes undefined 100%-discarded score and includes unfiltered reference.",
+      "tests": [
+        "mlguess/tests/test_audit_metrics.py::test_regression_diagnostics_single_target_and_negative_predictions",
+        "mlguess/tests/test_audit_metrics.py::test_coverage_and_rank_calibration_centers_and_spreads",
+        "mlguess/tests/test_audit_metrics.py::test_spread_skill_constant_and_right_endpoint",
+        "mlguess/tests/test_audit_metrics.py::test_regression_attribution_keeps_maximum_bin_and_constant_predictions",
+        "mlguess/tests/test_audit_metrics.py::test_uncertainty_plot_filters_paired_values"
+      ],
+      "execution_scope": "Linux CPU, Python3.11, NumPy2; synthetic data"
+    },
+    {
+      "module": "mlguess/regression_uq.py",
+      "function": "regression_attributes",
+      "line": 524,
+      "status": "tested",
+      "reviewed": true,
+      "notes": "Includes all occupied bins including last/max prediction; handles negative/constant predictions. Climatological reference is sample mean, not unweighted bin mean.",
+      "tests": [
+        "mlguess/tests/test_audit_metrics.py::test_regression_diagnostics_single_target_and_negative_predictions",
+        "mlguess/tests/test_audit_metrics.py::test_coverage_and_rank_calibration_centers_and_spreads",
+        "mlguess/tests/test_audit_metrics.py::test_spread_skill_constant_and_right_endpoint",
+        "mlguess/tests/test_audit_metrics.py::test_regression_attribution_keeps_maximum_bin_and_constant_predictions",
+        "mlguess/tests/test_audit_metrics.py::test_uncertainty_plot_filters_paired_values"
+      ],
+      "execution_scope": "Linux CPU, Python3.11, NumPy2; synthetic data"
+    },
+    {
+      "module": "mlguess/regression_uq.py",
+      "function": "pit_figure_gaussian",
+      "line": 606,
+      "status": "tested",
+      "reviewed": true,
+      "notes": "Gaussian PIT uses sqrt of component and total variances; executed saved synthetic plot. Component PIT curves are diagnostics, not assertions of individual calibration.",
+      "tests": [
+        "mlguess/tests/test_audit_metrics.py::test_regression_diagnostics_single_target_and_negative_predictions",
+        "mlguess/tests/test_audit_metrics.py::test_coverage_and_rank_calibration_centers_and_spreads",
+        "mlguess/tests/test_audit_metrics.py::test_spread_skill_constant_and_right_endpoint",
+        "mlguess/tests/test_audit_metrics.py::test_regression_attribution_keeps_maximum_bin_and_constant_predictions",
+        "mlguess/tests/test_audit_metrics.py::test_uncertainty_plot_filters_paired_values"
+      ],
+      "execution_scope": "Linux CPU, Python3.11, NumPy2; synthetic data"
+    },
+    {
+      "module": "mlguess/regression_uq.py",
+      "function": "pit_figure_ensemble",
+      "line": 679,
+      "status": "tested",
+      "reviewed": true,
+      "notes": "Reviewed conversion (members,samples,targets) to per-target (samples,members); saved synthetic two-member diagnostic.",
+      "tests": [
+        "mlguess/tests/test_audit_metrics.py::test_regression_diagnostics_single_target_and_negative_predictions",
+        "mlguess/tests/test_audit_metrics.py::test_coverage_and_rank_calibration_centers_and_spreads",
+        "mlguess/tests/test_audit_metrics.py::test_spread_skill_constant_and_right_endpoint",
+        "mlguess/tests/test_audit_metrics.py::test_regression_attribution_keeps_maximum_bin_and_constant_predictions",
+        "mlguess/tests/test_audit_metrics.py::test_uncertainty_plot_filters_paired_values"
+      ],
+      "execution_scope": "Linux CPU, Python3.11, NumPy2; synthetic data"
+    },
+    {
+      "module": "mlguess/regression_uq.py",
+      "function": "calculate_skill_score",
+      "line": 743,
+      "status": "tested",
+      "reviewed": true,
+      "notes": "Delegates shared corrected calculation with legacy 5%-filter default preserved; equality tested at same explicit parameters.",
+      "tests": [
+        "mlguess/tests/test_audit_metrics.py::test_regression_diagnostics_single_target_and_negative_predictions",
+        "mlguess/tests/test_audit_metrics.py::test_coverage_and_rank_calibration_centers_and_spreads",
+        "mlguess/tests/test_audit_metrics.py::test_spread_skill_constant_and_right_endpoint",
+        "mlguess/tests/test_audit_metrics.py::test_regression_attribution_keeps_maximum_bin_and_constant_predictions",
+        "mlguess/tests/test_audit_metrics.py::test_uncertainty_plot_filters_paired_values"
+      ],
+      "execution_scope": "Linux CPU, Python3.11, NumPy2; synthetic data"
+    },
+    {
+      "module": "mlguess/regression_uq.py",
+      "function": "rmse_crps_skill_scores",
+      "line": 749,
+      "status": "tested",
+      "reviewed": true,
+      "notes": "Uses sqrt(a+e); executed single-column path with saved figure; multi-column indexing reviewed.",
+      "tests": [
+        "mlguess/tests/test_audit_metrics.py::test_regression_diagnostics_single_target_and_negative_predictions",
+        "mlguess/tests/test_audit_metrics.py::test_coverage_and_rank_calibration_centers_and_spreads",
+        "mlguess/tests/test_audit_metrics.py::test_spread_skill_constant_and_right_endpoint",
+        "mlguess/tests/test_audit_metrics.py::test_regression_attribution_keeps_maximum_bin_and_constant_predictions",
+        "mlguess/tests/test_audit_metrics.py::test_uncertainty_plot_filters_paired_values"
+      ],
+      "execution_scope": "Linux CPU, Python3.11, NumPy2; synthetic data"
+    },
+    {
+      "module": "mlguess/reliability.py",
+      "function": "compute_calibration",
+      "line": 9,
+      "status": "tested",
+      "reviewed": true,
+      "notes": "Zero confidence included; list/string labels accepted; invalid probabilities and non-vector inputs rejected. Explicit weighted ECE hand calculation.",
+      "tests": [
+        "mlguess/tests/test_audit_metrics.py::test_reliability_lists_and_manual_calibration"
+      ],
+      "execution_scope": "Linux CPU, Python3.11, NumPy2; synthetic data"
+    },
+    {
+      "module": "mlguess/reliability.py",
+      "function": "_reliability_diagram_subplot",
+      "line": 78,
+      "status": "tested",
+      "reviewed": true,
+      "notes": "Executed equal-bin alpha/width importance; finite normalization for equal counts.",
+      "tests": [
+        "mlguess/tests/test_audit_metrics.py::test_reliability_lists_and_manual_calibration"
+      ],
+      "execution_scope": "Linux CPU, Python3.11, NumPy2; synthetic data"
+    },
+    {
+      "module": "mlguess/reliability.py",
+      "function": "_confidence_histogram_subplot",
+      "line": 160,
+      "status": "tested",
+      "reviewed": true,
+      "notes": "Executed through combined diagnostic; averaged confidence/accuracy plotted.",
+      "tests": [
+        "mlguess/tests/test_audit_metrics.py::test_reliability_lists_and_manual_calibration"
+      ],
+      "execution_scope": "Linux CPU, Python3.11, NumPy2; synthetic data"
+    },
+    {
+      "module": "mlguess/reliability.py",
+      "function": "_reliability_diagram_combined",
+      "line": 187,
+      "status": "tested",
+      "reviewed": true,
+      "notes": "Executed and rendered upside-down count histogram with original bin counts restored.",
+      "tests": [
+        "mlguess/tests/test_audit_metrics.py::test_reliability_lists_and_manual_calibration"
+      ],
+      "execution_scope": "Linux CPU, Python3.11, NumPy2; synthetic data"
+    },
+    {
+      "module": "mlguess/reliability.py",
+      "function": "reliability_diagram",
+      "line": 217,
+      "status": "tested",
+      "reviewed": true,
+      "notes": "Executed list inputs with alpha/width modes and rendered Agg canvases.",
+      "tests": [
+        "mlguess/tests/test_audit_metrics.py::test_reliability_lists_and_manual_calibration"
+      ],
+      "execution_scope": "Linux CPU, Python3.11, NumPy2; synthetic data"
+    },
+    {
+      "module": "mlguess/reliability.py",
+      "function": "reliability_diagrams",
+      "line": 262,
+      "status": "tested",
+      "reviewed": true,
+      "notes": "Executed single-model/single-column axes path; multi-model layout previously covered by scientific regression tests.",
+      "tests": [
+        "mlguess/tests/test_audit_metrics.py::test_reliability_lists_and_manual_calibration"
+      ],
+      "execution_scope": "Linux CPU, Python3.11, NumPy2; synthetic data"
+    },
+    {
+      "module": "mlguess/pit.py",
+      "function": "pit_histogram",
+      "line": 6,
+      "status": "tested",
+      "reviewed": true,
+      "notes": "Validates recognized distribution names, dispatches to validated CDF/rank transforms. Histogram domain remains [0,1].",
+      "tests": [
+        "mlguess/tests/test_audit_metrics.py::test_pit_cdfs_mixtures_ties_and_point_masses",
+        "mlguess/tests/test_audit_metrics.py::test_pit_rejects_invalid_definitions"
+      ],
+      "execution_scope": "Linux CPU, Python3.11, NumPy2; synthetic data"
+    },
+    {
+      "module": "mlguess/pit.py",
+      "function": "pit_deviation",
+      "line": 35,
+      "status": "tested",
+      "reviewed": true,
+      "notes": "Original equal-bin deviation formula preserved. Explicit bins must be equally spaced across full [0,1], preventing silently invalid uniform reference.",
+      "tests": [
+        "mlguess/tests/test_audit_metrics.py::test_pit_cdfs_mixtures_ties_and_point_masses",
+        "mlguess/tests/test_audit_metrics.py::test_pit_rejects_invalid_definitions"
+      ],
+      "execution_scope": "Linux CPU, Python3.11, NumPy2; synthetic data"
+    },
+    {
+      "module": "mlguess/pit.py",
+      "function": "pit_deviation_worst",
+      "line": 47,
+      "status": "tested",
+      "reviewed": true,
+      "notes": "Verified worst-case expression sqrt(K-1)/K; rejects fewer than two bins, where skill normalization is undefined.",
+      "tests": [
+        "mlguess/tests/test_audit_metrics.py::test_pit_cdfs_mixtures_ties_and_point_masses",
+        "mlguess/tests/test_audit_metrics.py::test_pit_rejects_invalid_definitions"
+      ],
+      "execution_scope": "Linux CPU, Python3.11, NumPy2; synthetic data"
+    },
+    {
+      "module": "mlguess/pit.py",
+      "function": "pit_deviation_skill_score",
+      "line": 56,
+      "status": "tested",
+      "reviewed": true,
+      "notes": "Verified degenerate one-bin mass yields skill0; integer and explicit equal-spaced edges covered.",
+      "tests": [
+        "mlguess/tests/test_audit_metrics.py::test_pit_cdfs_mixtures_ties_and_point_masses",
+        "mlguess/tests/test_audit_metrics.py::test_pit_rejects_invalid_definitions"
+      ],
+      "execution_scope": "Linux CPU, Python3.11, NumPy2; synthetic data"
+    },
+    {
+      "module": "mlguess/pit.py",
+      "function": "probability_integral_transform_ensemble",
+      "line": 66,
+      "status": "tested",
+      "reviewed": true,
+      "notes": "Preserves scipy percentileofscore kind=rank tie convention; test tie counterexample yields .625. Not randomized discrete PIT.",
+      "tests": [
+        "mlguess/tests/test_audit_metrics.py::test_pit_cdfs_mixtures_ties_and_point_masses",
+        "mlguess/tests/test_audit_metrics.py::test_pit_rejects_invalid_definitions"
+      ],
+      "execution_scope": "Linux CPU, Python3.11, NumPy2; synthetic data"
+    },
+    {
+      "module": "mlguess/pit.py",
+      "function": "probability_integral_transform_gaussian",
+      "line": 86,
+      "status": "tested",
+      "reviewed": true,
+      "notes": "Verified normal CDF; zero sigma explicitly interpreted as right-continuous point-mass CDF, whose PIT need not be uniform. Negative sigma rejected.",
+      "tests": [
+        "mlguess/tests/test_audit_metrics.py::test_pit_cdfs_mixtures_ties_and_point_masses",
+        "mlguess/tests/test_audit_metrics.py::test_pit_rejects_invalid_definitions"
+      ],
+      "execution_scope": "Linux CPU, Python3.11, NumPy2; synthetic data"
+    },
+    {
+      "module": "mlguess/pit.py",
+      "function": "pit_gaussian_ensemble",
+      "line": 107,
+      "status": "tested",
+      "reviewed": true,
+      "notes": "Averages member CDFs, not distribution parameters; symmetric two-component mixture verified analytically.",
+      "tests": [
+        "mlguess/tests/test_audit_metrics.py::test_pit_cdfs_mixtures_ties_and_point_masses",
+        "mlguess/tests/test_audit_metrics.py::test_pit_rejects_invalid_definitions"
+      ],
+      "execution_scope": "Linux CPU, Python3.11, NumPy2; synthetic data"
+    },
+    {
+      "module": "mlguess/pit.py",
+      "function": "pit_histogram_values",
+      "line": 125,
+      "status": "tested",
+      "reviewed": true,
+      "notes": "Quantiles finite in [0,1], explicit bin endpoints cover [0,1]; integer bins never infer sample range.",
+      "tests": [
+        "mlguess/tests/test_audit_metrics.py::test_pit_cdfs_mixtures_ties_and_point_masses",
+        "mlguess/tests/test_audit_metrics.py::test_pit_rejects_invalid_definitions"
+      ],
+      "execution_scope": "Linux CPU, Python3.11, NumPy2; synthetic data"
+    },
+    {
+      "module": "mlguess/pit.py",
+      "function": "_pit_inputs",
+      "line": 140,
+      "status": "tested",
+      "reviewed": true,
+      "notes": "Direct Gaussian, ensemble and Gaussian-mixture calls validate shape, member count, finiteness and nonnegative sigma.",
+      "tests": [
+        "mlguess/tests/test_audit_metrics.py::test_pit_cdfs_mixtures_ties_and_point_masses",
+        "mlguess/tests/test_audit_metrics.py::test_pit_rejects_invalid_definitions"
+      ],
+      "execution_scope": "Linux CPU, Python3.11, NumPy2; synthetic data"
+    },
+    {
+      "module": "mlguess/uncertainty.py",
+      "function": "_finite_array",
+      "line": 10,
+      "status": "tested",
+      "reviewed": true,
+      "notes": "Reviewed float64 conversion and finite guard; exercised through every shared moment helper.",
+      "tests": [
+        "mlguess/tests/test_audit_metrics.py::test_shared_uncertainties_analytic_nested_mixture_and_scaling"
+      ],
+      "execution_scope": "Linux CPU, Python3.11, NumPy2; synthetic data"
+    },
+    {
+      "module": "mlguess/uncertainty.py",
+      "function": "ensemble_uncertainties",
+      "line": 17,
+      "status": "tested",
+      "reviewed": true,
+      "notes": "Analytical unequal-weight hierarchical mixture: means[0,2], within A[2,2], E[1,.5], weights[1,3] -> mean1.5, between.75, total3.375. Existing overflow/invalid tests also run.",
+      "tests": [
+        "mlguess/tests/test_audit_metrics.py::test_shared_uncertainties_analytic_nested_mixture_and_scaling"
+      ],
+      "execution_scope": "Linux CPU, Python3.11, NumPy2; synthetic data"
+    },
+    {
+      "module": "mlguess/uncertainty.py",
+      "function": "nig_uncertainties",
+      "line": 73,
+      "status": "tested",
+      "reviewed": true,
+      "notes": "NIG A=beta/(alpha-1), E=A/nu and finite Student-t variance unchanged; invalid moment parameters rejected.",
+      "tests": [
+        "mlguess/tests/test_audit_metrics.py::test_shared_uncertainties_analytic_nested_mixture_and_scaling"
+      ],
+      "execution_scope": "Linux CPU, Python3.11, NumPy2; synthetic data"
+    },
+    {
+      "module": "mlguess/uncertainty.py",
+      "function": "dirichlet_uncertainties",
+      "line": 94,
+      "status": "tested",
+      "reviewed": true,
+      "notes": "Class-indicator marginal variance p(1-p) split by strength; alpha[2,6] -> p[.25,.75], total[.1875,.1875].",
+      "tests": [
+        "mlguess/tests/test_audit_metrics.py::test_shared_uncertainties_analytic_nested_mixture_and_scaling"
+      ],
+      "execution_scope": "Linux CPU, Python3.11, NumPy2; synthetic data"
+    },
+    {
+      "module": "mlguess/uncertainty.py",
+      "function": "affine_inverse_scale",
+      "line": 113,
+      "status": "tested",
+      "reviewed": true,
+      "notes": "All supported scalers numerically checked; fitted feature count now checked even for disabled standard-deviation scaling.",
+      "tests": [
+        "mlguess/tests/test_audit_metrics.py::test_shared_uncertainties_analytic_nested_mixture_and_scaling"
+      ],
+      "execution_scope": "Linux CPU, Python3.11, NumPy2; synthetic data"
+    },
+    {
+      "module": "mlguess/uncertainty.py",
+      "function": "inverse_scale_moments",
+      "line": 141,
+      "status": "tested",
+      "reviewed": true,
+      "notes": "Means inverse transformed once; variances match variance of transformed +/-1 support exactly for four affine scaler families.",
+      "tests": [
+        "mlguess/tests/test_audit_metrics.py::test_shared_uncertainties_analytic_nested_mixture_and_scaling"
+      ],
+      "execution_scope": "Linux CPU, Python3.11, NumPy2; synthetic data"
+    },
+    {
+      "module": "mlguess/plotting.py",
+      "function": "plot_confusion_matrix",
+      "line": 7,
+      "status": "tested",
+      "reviewed": true,
+      "notes": "Explicit class set retains absent categories; normalization leaves zero-support rows zero. Import and basic figure work with Cartopy forcibly unavailable.",
+      "tests": [
+        "mlguess/tests/test_audit_metrics.py::test_basic_plotting_does_not_require_cartopy_and_retains_absent_classes"
+      ],
+      "execution_scope": "Linux CPU, Python3.11, NumPy2; synthetic data"
+    },
+    {
+      "module": "mlguess/plotting.py",
+      "function": "compute_cov",
+      "line": 54,
+      "status": "tested",
+      "reviewed": true,
+      "notes": "Cumulative coverage and copy behavior verified numerically; original increasing retained-fraction convention preserved.",
+      "tests": [
+        "mlguess/tests/test_audit_metrics.py::test_basic_plotting_does_not_require_cartopy_and_retains_absent_classes"
+      ],
+      "execution_scope": "Linux CPU, Python3.11, NumPy2; synthetic data"
+    },
+    {
+      "module": "mlguess/plotting.py",
+      "function": "coverage_figures",
+      "line": 64,
+      "status": "tested",
+      "reviewed": true,
+      "notes": "Default colors work; missing class indices remain aligned; avoids mutating caller accuracy column; saved PNG.",
+      "tests": [
+        "mlguess/tests/test_audit_metrics.py::test_basic_plotting_does_not_require_cartopy_and_retains_absent_classes"
+      ],
+      "execution_scope": "Linux CPU, Python3.11, NumPy2; synthetic data"
+    },
+    {
+      "module": "mlguess/plotting.py",
+      "function": "conus_plot",
+      "line": 127,
+      "status": "unexecuted",
+      "reviewed": true,
+      "notes": "Read-only scientific review; geospatial execution not performed (Cartopy/Natural Earth assets absent). Cartopy import now isolated to this function and caller frame copied. Existing ASOS jitter scale=10 degrees and longitude conventions preserved; these are visualization assumptions, not validated geographic accuracy.",
+      "tests": [],
+      "execution_scope": "Read-only source review; optional geospatial runtime unavailable"
+    },
+    {
+      "module": "mlguess/torch/metrics.py",
+      "function": "MetricsCalculator.__init__",
+      "line": 30,
+      "status": "tested",
+      "reviewed": true,
+      "notes": "Positive integer bin counts required; use_uncertainty flag retained for API compatibility, inputs are always probabilities.",
+      "tests": [
+        "mlguess/tests/test_audit_metrics.py::test_torch_metrics_match_manual_and_shared_calibration"
+      ],
+      "execution_scope": "Linux CPU, Python3.11, NumPy2; synthetic data"
+    },
+    {
+      "module": "mlguess/torch/metrics.py",
+      "function": "MetricsCalculator.__call__",
+      "line": 44,
+      "status": "tested",
+      "reviewed": true,
+      "notes": "Tensor/NumPy accepted, exact onehot target shape required; original metric keyset retained. Direct manual accuracy/CSI and probability validation tests.",
+      "tests": [
+        "mlguess/tests/test_audit_metrics.py::test_torch_metrics_match_manual_and_shared_calibration"
+      ],
+      "execution_scope": "Linux CPU, Python3.11, NumPy2; synthetic data"
+    },
+    {
+      "module": "mlguess/torch/metrics.py",
+      "function": "MetricsCalculator.mean_csi",
+      "line": 84,
+      "status": "tested",
+      "reviewed": true,
+      "notes": "Original max-threshold macro CSI definition preserved; each class uses own probability column. Analytical separable ranking produces1.",
+      "tests": [
+        "mlguess/tests/test_audit_metrics.py::test_torch_metrics_match_manual_and_shared_calibration"
+      ],
+      "execution_scope": "Linux CPU, Python3.11, NumPy2; synthetic data"
+    },
+    {
+      "module": "mlguess/torch/metrics.py",
+      "function": "MetricsCalculator.ave_acc",
+      "line": 120,
+      "status": "tested",
+      "reviewed": true,
+      "notes": "Macro recall over observed classes; list inputs and nonempty vector checks. Manual imbalanced class example .75.",
+      "tests": [
+        "mlguess/tests/test_audit_metrics.py::test_torch_metrics_match_manual_and_shared_calibration"
+      ],
+      "execution_scope": "Linux CPU, Python3.11, NumPy2; synthetic data"
+    },
+    {
+      "module": "mlguess/torch/metrics.py",
+      "function": "MetricsCalculator.mce",
+      "line": 143,
+      "status": "tested",
+      "reviewed": true,
+      "notes": "Matches shared reliability implementation against manual labels/probabilities.",
+      "tests": [
+        "mlguess/tests/test_audit_metrics.py::test_torch_metrics_match_manual_and_shared_calibration"
+      ],
+      "execution_scope": "Linux CPU, Python3.11, NumPy2; synthetic data"
+    },
+    {
+      "module": "mlguess/torch/metrics.py",
+      "function": "MetricsCalculator.ece",
+      "line": 156,
+      "status": "tested",
+      "reviewed": true,
+      "notes": "Matches shared weighted ECE; invalid raw logits rejected rather than silently omitted from bins.",
+      "tests": [
+        "mlguess/tests/test_audit_metrics.py::test_torch_metrics_match_manual_and_shared_calibration"
+      ],
+      "execution_scope": "Linux CPU, Python3.11, NumPy2; synthetic data"
+    },
+    {
+      "module": "mlguess/torch/metrics.py",
+      "function": "MetricsCalculator._calibration_bins",
+      "line": 169,
+      "status": "tested",
+      "reviewed": true,
+      "notes": "Uses one top-label event, paired class labels, includes boundary confidences, excludes empty bins only.",
+      "tests": [
+        "mlguess/tests/test_audit_metrics.py::test_torch_metrics_match_manual_and_shared_calibration"
+      ],
+      "execution_scope": "Linux CPU, Python3.11, NumPy2; synthetic data"
+    },
+    {
+      "module": "mlguess/torch/metrics.py",
+      "function": "MetricsCalculator._validate_probabilities",
+      "line": 191,
+      "status": "tested",
+      "reviewed": true,
+      "notes": "Rejects empty, nonfinite, unnormalized/out-of-range probabilities; allows normal floating softmax tolerance.",
+      "tests": [
+        "mlguess/tests/test_audit_metrics.py::test_torch_metrics_match_manual_and_shared_calibration"
+      ],
+      "execution_scope": "Linux CPU, Python3.11, NumPy2; synthetic data"
+    }
+  ]
+}

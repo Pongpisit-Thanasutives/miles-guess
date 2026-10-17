@@ -2,10 +2,7 @@ import os
 import torch
 import torch.nn as nn
 import logging
-
-from torch.distributed.fsdp import FullStateDictConfig
-from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
-from torch.distributed.fsdp import StateDictType
+from importlib.util import find_spec
 
 from torch.optim import Optimizer
 from pathlib import Path
@@ -18,9 +15,19 @@ from torch.utils._pytree import tree_map
 # adapted from https://github.com/hpcaitech/ColossalAI/blob/f2e8b9ef9ff3032513732a699d766bcde1a3506e/colossalai/booster/plugin/torch_fsdp_plugin.py
 
 
+def _fsdp_types():
+    """Import distributed support only when an FSDP operation is requested."""
+    try:
+        from torch.distributed.fsdp import FullStateDictConfig, StateDictType
+        from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+    except ImportError as exc:
+        raise ImportError("FSDP requires a PyTorch build with distributed support.") from exc
+    return FSDP, FullStateDictConfig, StateDictType
+
+
 # utils
 
-def load_model_state(conf, model, device):
+def load_model_state(conf, model, device="cpu", *, weights_only=True):
     """Load the model state from a checkpoint file.
 
     This function restores the model state from a saved checkpoint. It supports loading models from
@@ -34,6 +41,8 @@ def load_model_state(conf, model, device):
             - `trainer` (dict): Contains `mode` key which indicates the distributed training mode.
         model (torch.nn.Module): The model to load the state into.
         device (torch.device): The device to load the model state onto.
+        weights_only (bool): Use restricted tensor loading. Set False only for
+            trusted legacy checkpoints containing custom pickle objects.
 
     Returns:
         torch.nn.Module: The model with its state loaded from the checkpoint.
@@ -42,22 +51,21 @@ def load_model_state(conf, model, device):
         FileNotFoundError: If the checkpoint file does not exist at the specified location.
         KeyError: If the checkpoint file does not contain the expected keys.
     """
-    save_loc = os.path.expandvars(conf['save_loc'])
-    #  Load an optimizer, gradient scaler, and learning rate scheduler, the optimizer must come after wrapping model using FSDP
-    ckpt = os.path.join(save_loc, "checkpoint.pt")
-    checkpoint = torch.load(ckpt, map_location=device)
-    if conf["trainer"]["mode"] == "fsdp":
-        logging.info(f"Loading FSDP model from {save_loc}")
-        checkpoint_io = TorchFSDPCheckpointIO()
-        checkpoint_io.load_unsharded_model(model, os.path.join(save_loc, "model_checkpoint.pt"))
+    save_loc = Path(os.path.expandvars(os.path.expanduser(str(conf['save_loc']))))
+    mode = conf.get("trainer", {}).get("mode", "none")
+    if mode == "fsdp":
+        logging.info("Loading unsharded FSDP model from %s", save_loc)
+        state_dict = load_state_dict(save_loc / "model_checkpoint.pt", weights_only=weights_only)
     else:
-        if conf["trainer"]["mode"] == "ddp":
-            logging.info(f"Loading DDP model from {save_loc}")
-            model.module.load_state_dict(checkpoint["model_state_dict"])
-        else:
-            logging.info(f"Loading model from {save_loc}")
-            model.load_state_dict(checkpoint["model_state_dict"])
-    return model
+        logging.info("Loading model from %s", save_loc)
+        checkpoint = load_state_dict(save_loc / "checkpoint.pt", weights_only=weights_only)
+        state_dict = checkpoint.get("model_state_dict", checkpoint)
+    # A saved distributed state can also be restored into an ordinary CPU model.
+    target = model.unwrap() if hasattr(model, "unwrap") else model
+    if mode == "ddp" and hasattr(target, "module"):
+        target = target.module
+    target.load_state_dict(state_dict)
+    return model.to(device)
 
 
 def save_state_dict(state_dict: dict, checkpoint_file_path: str, use_safetensors: bool) -> None:
@@ -68,8 +76,9 @@ def save_state_dict(state_dict: dict, checkpoint_file_path: str, use_safetensors
         checkpoint_file_path (str): path to the checkpoint file.
         use_safetensors (bool): whether to use safetensors to save the checkpoint.
     """
+    checkpoint_file_path = os.fspath(checkpoint_file_path)
     # Move all tensors in the state_dict to CPU before saving to avoid serialization issues
-    state_dict_cpu = tree_map(lambda x: x.cpu() if torch.is_tensor(x) else x, state_dict)
+    state_dict_cpu = tree_map(lambda x: x.detach().cpu() if torch.is_tensor(x) else x, state_dict)
 
     if use_safetensors:
         assert is_safetensors_available(), "safetensors is not available."
@@ -83,15 +92,18 @@ def save_state_dict(state_dict: dict, checkpoint_file_path: str, use_safetensors
         torch.save(state_dict_cpu, checkpoint_file_path)
 
 
-def load_state_dict(checkpoint_file_path: Path):
+def load_state_dict(checkpoint_file_path: Path, *, weights_only=True):
     """Load state dict from checkpoint.
 
     Args:
-        checkpoint_file_path (Path): path to the checkpoint file.
+        checkpoint_file_path (str or Path): path to the checkpoint file.
+        weights_only (bool): Use the restricted PyTorch loader by default. Set
+            False only for trusted legacy pickle checkpoints.
 
     Returns:
         dict: state dict.
     """
+    checkpoint_file_path = os.fspath(checkpoint_file_path)
     assert not is_dtensor_checkpoint(
         checkpoint_file_path
     ), f"Cannot load state dict from dtensor checkpoint {checkpoint_file_path}, you should convert the distributed tensors to gathered tensors with our CLI offline."
@@ -111,7 +123,7 @@ def load_state_dict(checkpoint_file_path: Path):
 
     else:
         # load with torch
-        return torch.load(checkpoint_file_path, map_location=torch.device("cpu"))
+        return torch.load(checkpoint_file_path, map_location="cpu", weights_only=weights_only)
 
 
 def is_dtensor_checkpoint(checkpoint_file_path: str) -> bool:
@@ -123,6 +135,7 @@ def is_dtensor_checkpoint(checkpoint_file_path: str) -> bool:
     Returns:
         bool: whether the checkpoint file is a dtensor checkpoint.
     """
+    checkpoint_file_path = os.fspath(checkpoint_file_path)
     if checkpoint_file_path.endswith(".*.safetensors") or checkpoint_file_path.endswith(".*.bin"):
         return True
     else:
@@ -138,6 +151,7 @@ def is_safetensor_checkpoint(checkpoint_file_path: str) -> bool:
     Returns:
         bool: whether the checkpoint file is a safetensor checkpoint.
     """
+    checkpoint_file_path = os.fspath(checkpoint_file_path)
     if checkpoint_file_path.endswith(".safetensors"):
         return True
     else:
@@ -150,10 +164,7 @@ def is_safetensors_available() -> bool:
     Returns:
         bool: whether safetensors is available.
     """
-    try:
-        return True
-    except ImportError:
-        return False
+    return find_spec("safetensors") is not None
 
 
 class TorchFSDPCheckpointIO:
@@ -176,7 +187,7 @@ class TorchFSDPCheckpointIO:
         super().__init__()
 
     def load_unsharded_model(self, model, checkpoint):
-        model = model.unwrap()
+        model = model.unwrap() if hasattr(model, "unwrap") else model
         checkpoint = load_state_dict(checkpoint)
         model.load_state_dict(checkpoint)
 
@@ -185,14 +196,18 @@ class TorchFSDPCheckpointIO:
         fsdp_model = optimizer.unwrap_model()
         # I believe using scatter causes extra memory usage by torch, which has caused OOM problems. shard should not do this -- John
         # see https://pytorch.org/docs/stable/fsdp.html#torch.distributed.fsdp.FullyShardedDataParallel.shard_full_optim_state_dict
-        sharded_osd = FSDP.shard_full_optim_state_dict(checkpoint, fsdp_model)
+        FSDP, _, _ = _fsdp_types()
+        sharded_osd = FSDP.shard_full_optim_state_dict(
+            checkpoint, fsdp_model, optim=optimizer.unwrap()
+        )
         #sharded_osd = FSDP.scatter_full_optim_state_dict(checkpoint, fsdp_model)
         optimizer.load_state_dict(sharded_osd)
 
     def save_unsharded_model(self, model, checkpoint, gather_dtensor, use_safetensors, rank):
         """Save model to checkpoint but only on master process.
         """
-        model = model.unwrap()
+        model = model.unwrap() if hasattr(model, "unwrap") else model
+        FSDP, FullStateDictConfig, StateDictType = _fsdp_types()
         cfg = FullStateDictConfig(offload_to_cpu=True, rank0_only=True)
         with FSDP.state_dict_type(model, StateDictType.FULL_STATE_DICT, cfg):
             full_model_state = model.state_dict()
@@ -203,7 +218,18 @@ class TorchFSDPCheckpointIO:
         """Save optimizer to checkpoint but only on master process.
         """
         fsdp_model = optimizer.unwrap_model()
-        full_optimizer_state = FSDP.optim_state_dict(fsdp_model, optim=optimizer)
+        FSDP, FullStateDictConfig, StateDictType = _fsdp_types()
+        from torch.distributed.fsdp import FullOptimStateDictConfig
+
+        # The file is explicitly unsharded even when the caller has selected a
+        # different FSDP state-dict mode. Native APIs receive the actual optimizer.
+        with FSDP.state_dict_type(
+            fsdp_model,
+            StateDictType.FULL_STATE_DICT,
+            FullStateDictConfig(offload_to_cpu=True, rank0_only=True),
+            FullOptimStateDictConfig(offload_to_cpu=True, rank0_only=True),
+        ):
+            full_optimizer_state = FSDP.optim_state_dict(fsdp_model, optim=optimizer.unwrap())
         if rank == 0:
             save_state_dict(full_optimizer_state, checkpoint_file_path=checkpoint, use_safetensors=False)
 
@@ -233,6 +259,7 @@ class ModelWrapper(nn.Module):
 class TorchFSDPModel(ModelWrapper):
     def __init__(self, module, *args, **kwargs) -> None:
         super().__init__(module)
+        FSDP, _, _ = _fsdp_types()
         self.module = FSDP(module, *args, **kwargs)
 
     def unwrap(self):
@@ -368,7 +395,7 @@ class FSDPOptimizerWrapper(OptimizerWrapper):
         super().__init__(optimizer)
 
     def unwrap_model(self) -> nn.Module:
-        return self.model
+        return self.model.unwrap() if hasattr(self.model, "unwrap") else self.model
 
 
 if __name__ == "__main__":
@@ -399,8 +426,8 @@ if __name__ == "__main__":
     checkpoint_io = TorchFSDPCheckpointIO()
 
     # Save model and optimizer checkpoints
-    checkpoint_io.save_unsharded_model(fsdp_model, "model_checkpoint.pth", gather_dtensor=True, use_safetensors=False)
-    checkpoint_io.save_unsharded_optimizer(fsdp_optimizer, "optimizer_checkpoint.pth", gather_dtensor=True)
+    checkpoint_io.save_unsharded_model(fsdp_model, "model_checkpoint.pth", gather_dtensor=True, use_safetensors=False, rank=0)
+    checkpoint_io.save_unsharded_optimizer(fsdp_optimizer, "optimizer_checkpoint.pth", gather_dtensor=True, rank=0)
 
     # Load the model and optimizer
     loaded_model = nn.Sequential(
@@ -424,5 +451,5 @@ if __name__ == "__main__":
         nn.ReLU(),
         nn.Linear(5, 2)
     ).to("cuda")
-    checkpoint = torch.load("model_checkpoint.pth")
+    checkpoint = load_state_dict("model_checkpoint.pth")
     indy_model.load_state_dict(checkpoint)

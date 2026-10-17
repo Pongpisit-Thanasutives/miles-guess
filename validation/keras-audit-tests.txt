@@ -1,0 +1,38 @@
+........................................................................ [ 55%]
+.........................................................                [100%]
+=============================== warnings summary ===============================
+mlguess/tests/test_audit_keras.py: 696 warnings
+mlguess/tests/test_keras_lotv.py: 180 warnings
+mlguess/tests/test_legacy_lotv.py: 70 warnings
+mlguess/tests/test_layers.py: 2 warnings
+mlguess/tests/test_models.py: 6906 warnings
+  /workspace/scratch/d7d34632ac75/.venv311/lib/python3.11/site-packages/keras/src/backend/torch/core.py:276: DeprecationWarning: __array__ implementation doesn't accept a copy keyword, so passing copy=False failed. __array__ must implement 'dtype' and 'copy' keyword arguments. To learn more, see the migration guide https://numpy.org/devdocs/numpy_2_0_migration_guide.html#adapting-to-changes-in-the-copy-keyword
+    return np.array(x)
+
+mlguess/tests/test_audit_keras.py: 191 warnings
+mlguess/tests/test_legacy_lotv.py: 6 warnings
+mlguess/tests/test_models.py: 160 warnings
+  /workspace/scratch/d7d34632ac75/.venv311/lib/python3.11/site-packages/keras/src/backend/common/variables.py:252: DeprecationWarning: __array__ implementation doesn't accept a copy keyword, so passing copy=False failed. __array__ must implement 'dtype' and 'copy' keyword arguments. To learn more, see the migration guide https://numpy.org/devdocs/numpy_2_0_migration_guide.html#adapting-to-changes-in-the-copy-keyword
+    return np.array(self)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+================================ tests coverage ================================
+_______________ coverage: platform linux, python 3.11.17-final-0 _______________
+
+Name                                    Stmts   Miss Branch BrPart  Cover
+-------------------------------------------------------------------------
+mlguess/keras/__init__.py                   0      0      0      0   100%
+mlguess/keras/callbacks.py                138      8     40     12    89%
+mlguess/keras/data.py                      84     84     34      0     0%
+mlguess/keras/deprecated/callbacks.py       2      0      0      0   100%
+mlguess/keras/deprecated/losses.py        126      4     26      4    95%
+mlguess/keras/deprecated/models.py        569     98    218     64    75%
+mlguess/keras/layers.py                    74      0      8      0   100%
+mlguess/keras/losses.py                   148     12     28      4    91%
+mlguess/keras/models.py                   293     24    108     28    87%
+mlguess/keras/monte_carlo.py              114     12     54     12    86%
+mlguess/keras/seed.py                       5      0      0      0   100%
+-------------------------------------------------------------------------
+TOTAL                                    1553    242    516    124    79%
+Coverage JSON written to file validation/keras-coverage.json
+129 passed, 8211 warnings in 48.89s

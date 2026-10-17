@@ -1,0 +1,26 @@
+{
+  "scope": "mlguess/evaluation.py",
+  "review": "Independently reviewed against direct SciPy Student-t and sklearn metrics; formula errors below 4e-15 in the tested affine-scaled example.",
+  "functions": [
+    {
+      "module": "mlguess/evaluation.py",
+      "function": "evaluate_nig",
+      "reviewed": true,
+      "status": "tested",
+      "tests": [
+        "mlguess/tests/test_evaluation.py"
+      ],
+      "notes": "Analytical values, affine scaling, boundary cases, executed tutorials."
+    },
+    {
+      "module": "mlguess/evaluation.py",
+      "function": "evaluate_classifier",
+      "reviewed": true,
+      "status": "tested",
+      "tests": [
+        "mlguess/tests/test_evaluation.py"
+      ],
+      "notes": "Analytical values, affine scaling, boundary cases, executed tutorials."
+    }
+  ]
+}

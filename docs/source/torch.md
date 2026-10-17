@@ -1,163 +1,165 @@
-# Pytorch in MILES-GUESS
+# PyTorch in MILES-GUESS
 
-Welcome to the pyTorch users page. The instructions below outline how to compute various UQ quantities like aleatoric and epistemic using different modeling approaches. Email schreck@ucar.edu for questions/concerns/fixes/etc
+Use the [installation guide](install.rst) or the [top-level README](../../README.md)
+for Python 3.11 CPU setup. The audited environment uses PyTorch 2.14.1 and
+NumPy 2.4.6. Windows/Linux use the official CPU wheel index; native Apple
+Silicon macOS 14+ uses the ordinary PyPI wheel. Native platform CI is configured,
+but Windows/macOS runs were not executed for this delivery.
 
-## Regression usage
+The [notebook guide](../../notebooks/README.md) is the entry point for synthetic
+regression/classification examples and adapting the models to your own data.
+For a short script, run `python examples/cpu_quickstart.py` from the project root.
 
-There are two provided scripts which are mostly similar, one for training (and predicting), and one for loading a trained model and predicting. The second script serves as an example on how to load the model from a checkpoint as well as potentially scale inference across GPUs. You may only need to run the trainer script and not necessarily the predict script, as they will both save model predictions to file as well as metrics.
+## CPU application scripts
 
-Run the training script with: `python applications/train_regressor_torch.py -c <path-to-config-file> [-l] [-m <mode>]`
+The supplied weather configurations require their original datasets and updated
+local paths. Use one process and explicit CPU settings:
 
-Arguments:
-- `-c, --config`: Path to the YAML configuration file (required)
-- `-l`: Submit workers to PBS (optional, default: 0)
-- `-m, --mode`: Set the training mode to 'none', 'ddp', or 'fsdp' (optional)
-
-Example: 
-`python trainer.py -c config.yml -m none -l 1`
-
-Running distribued mode:
-
-`torchrun [options] trainer.py -c config.yml -m ddp`
-
-`torchrun [options] trainer.py -c config.yml -m fsdp`
-
-The YAML configuration file should contain settings for the model, training, data, and pbs or slurm settings. For distributed training, set the `mode` in the config file or use the `-m` argument to specify 'ddp' or 'fsdp'. Use the `-l` flag to submit jobs to PBS or manually set up your distributed environment. If you plan to use more than 1 node, you may need to customize the torchrun for your system. FSDP is relatively hard to set up automatically, you will need to choose the model/data sharding policy on your own.
-
-For more detailed information about configuration options and advanced usage, please refer to the code documentation and comments within the script.
-
-[Optional]
-Once a model is trained, if you would like to load the model after-the-fact and predict on the training splits, run
-
-`python applications/predict_regressor_torch.py -c <path-to-config-file> [-l] [-m <mode>]`
-
-which will load the trained model from disk and predict on the training splits and save them along with some computed metrics to disk. The predicted quanties include the task(s) predictions along with aleatoric and epistemic quantities.
-
-## Classifier usage
-
-For the classifier models, training and evaluating an evidential model on a dataset is performed in the same script, with options for distributed training using either DDP or FSDP. See the regression prediction script for an example on model checkpoint reloading and prediction.
-
-Run the combined script with: 
-
-`python applications/train_classifier_torch.py -c <path-to-config-file> [-l] [-m <mode>]`
-
-Example: 
-
-`python applications/train_classifier_torch.py -c config.yml -m none`
-
-As noted this script will doubly train a model and then predict on the supplied training splits. The predicted quanties include the task(s) predictions along with the Dempster-Shafer uncertainty, and aleatoric and epistemic quantities for a $K$-class problem. Please see the full documentation for more. 
-
-## Model and training configuration yaml
-
-The most important fields for training evidential models with options are the trainer and model fields in the example config file. These fields apply and work with both classifier and regression models. 
 ```yaml
 trainer:
-    mode: fsdp # none, ddp, fsdp
-    training_metric: "valid_loss"
-    train_batch_size: *batch_size
-    valid_batch_size: *batch_size
-    batches_per_epoch: 500 # Set to 0 to use len(dataloader)
-    valid_batches_per_epoch: 0
-    learning_rate: 0.0015285262808755972
-    weight_decay: 0.0009378550509012784
-    start_epoch: 0
-    epochs: 100
-    amp: False
-    grad_accum_every: 1
-    grad_max_norm: 1.0
-    thread_workers: 4
-    valid_thread_workers: 4
-    stopping_patience: 5
-    load_weights: False
-    load_optimizer: False
-    use_scheduler: True
-    # scheduler: {'scheduler_type': 'cosine-annealing', first_cycle_steps: 500, cycle_mult: 6.0, max_lr: 5.0e-04, min_lr: 5.0e-07, warmup_steps: 499, gamma: 0.7}
-    scheduler: {scheduler_type: plateau, mode: min, factor: 0.1, patience: 2, cooldown: 2, min_lr: 1.0e-07, verbose: true, threshold: 1.0e-04}
-    # scheduler: {'scheduler_type': 'lambda'}
-  
-model:
-  input_size: *input_cols  # Reference to data:input_cols
-  output_size: *output_cols  # Reference to data:output_cols
-  layer_size: [1057, 1057, 1057, 1057, 1057]  # Example block sizes
-  dr: [0.263, 0.263, 0.263, 0.263, 0.263]  # Dropout rates
-  batch_norm: False  # Whether to use batch normalization
-  lng: True  # Use the evidential layer (True) or not (False)
+  device: cpu
+  mode: none
+  amp: false
+  thread_workers: 0
+  valid_thread_workers: 0
 ```
 
-## Trainer Configuration
+Train an evidential regressor and export predictions for each data split:
 
-### General Settings
+```bash
+python applications/train_regressor_torch.py -c config/evidential_regression_torch.yml --mode none --device cpu
+```
 
-* **Mode:** Specifies the distributed training strategy.
-    * Options: `none`, `ddp`, `fsdp`.
-* **Training Metric:** Metric used for monitoring during training.
-    * Example: `"valid_loss"`.
-* **Batch Sizes:**
-    * `train_batch_size`: Batch size used for training.
-    * `valid_batch_size`: Batch size used for validation.
-* **Epoch Configuration:**
-    * `batches_per_epoch`: Number of batches per epoch during training. Set to `0` to use the entire dataloader length.
-    * `valid_batches_per_epoch`: Number of batches per epoch during validation.
-    * `start_epoch`: The epoch from which training starts.
-    * `epochs`: Total number of epochs for training.
-* **Learning Parameters:**
-    * `learning_rate`: Initial learning rate.
-    * `weight_decay`: Weight decay for regularization.
-    * `amp`: Use Automatic Mixed Precision (AMP) if set to `True`.
-    * `grad_accum_every`: Gradient accumulation steps.
-    * `grad_max_norm`: Maximum norm for gradient clipping.
-* **Multi-threading**:
-    * `thread_workers`: Number of worker threads for training.
-    * `valid_thread_workers`: Number of worker threads for validation.
-* **Early Stopping**:
-    * `stopping_patience`: Number of epochs with no improvement after which training will stop.
-* **Checkpointing**:
-    * `load_weights`: Load weights from a pre-trained model if `True`.
-    * `load_optimizer`: Load optimizer state from a checkpoint if `True`.
-* **Learning Rate Scheduler**:
-    * `use_scheduler`: Apply learning rate scheduling if `True`.
-    * `scheduler`: Dictionary containing scheduler configuration.
+Reload its checkpoint and export predictions:
+
+```bash
+python applications/predict_regressor_torch.py -c /path/to/run/model.yml --mode none --device cpu
+```
+
+Train a classifier and export predictions:
+
+```bash
+python applications/train_classifier_torch.py -c config/evidential_classifier_torch.yml --mode none --device cpu
+```
+
+All scripts accept `-c/--config`, `-m/--mode`, `--device`, and `-l` (integer,
+default `0`, optional PBS submission). Run a script with `--help` for its options.
+ECHO/Optuna and W&B are optional and are imported only when requested. CLI mode
+and device overrides are recorded in `model.yml` for training and `prediction.yml`
+for prediction. Prediction preserves the training configuration file.
+
+Regression CSVs retain every target's mean and variance components. Classification
+CSVs contain normalized class probabilities, with evidential uncertainty columns
+when `trainer.uncertainty: true`. Export rows follow the original split order.
+Hyperparameter trials return validation results without post-fit test evaluation.
+
+The regression scripts load a custom `Dataset` class configured through
+`data.dataset_path` and `data.dataset_name`. That dataset owns its train/validation/
+test splitting and train-only scaler fitting. It supplies `train_data`,
+`valid_data`, and `test_data` DataFrames for export; `y_scaler` and `training_var`
+metadata are optional. Use an importable Python module filename. With spawned
+workers on macOS/Windows, put program entry points under
+`if __name__ == "__main__":`.
+
+## Training configuration
+
+This fragment shows CPU defaults; add your dataset settings, `save_loc`, and
+loss configuration to make a complete application configuration:
 
 ```yaml
-# Example: Cosine Annealing Scheduler
-scheduler:
-  scheduler_type: cosine-annealing
-  first_cycle_steps: 500
-  cycle_mult: 6.0
-  max_lr: 5.0e-04
-  min_lr: 5.0e-07
-  warmup_steps: 499
-  gamma: 0.7
+trainer:
+  device: cpu
+  mode: none
+  training_metric: valid_loss
+  train_batch_size: 64
+  valid_batch_size: 64
+  batches_per_epoch: 0
+  valid_batches_per_epoch: 0
+  learning_rate: 0.001
+  weight_decay: 0.0001
+  start_epoch: 0
+  epochs: 100
+  amp: false
+  grad_accum_every: 1
+  grad_max_norm: 1.0
+  thread_workers: 0
+  valid_thread_workers: 0
+  stopping_patience: 5
+  load_weights: false
+  load_optimizer: false
+  use_scheduler: false
 
-# Example: Plateau Scheduler
-scheduler:
-  scheduler_type: plateau
-  mode: min
-  factor: 0.1
-  patience: 2
-  cooldown: 2
-  min_lr: 1.0e-07
-  verbose: true
-  threshold: 1.0e-04
+model:
+  input_size: 10
+  output_size: 2
+  layer_size: [64, 64]
+  dr: [0.1, 0.1]
+  batch_norm: false
+  lng: true
 ```
 
-## Model Configuration
+`batches_per_epoch` and `valid_batches_per_epoch` are optional caps; zero uses
+the full loader. `grad_accum_every` sets gradient accumulation. CPU training
+uses float32; CUDA AMP is a separate optional path. Worker counts refer to
+DataLoader processes. A training dataset smaller than the batch size still
+produces one batch.
 
-### Input/Output Sizes
+`load_weights` restores a checkpoint, while `load_optimizer` also restores its
+optimizer state. `start_epoch` controls the resumed epoch number. Checkpoints
+use explicit device mapping and safe tensor/state loading.
 
-* `input_size`: Number of input features (referenced from data).
-* `output_size`: Number of output features (referenced from data).
+Schedulers are optional. For example:
 
-### Architecture
+```yaml
+trainer:
+  use_scheduler: true
+  scheduler:
+    scheduler_type: plateau
+    mode: min
+    factor: 0.1
+    patience: 2
+    cooldown: 2
+    min_lr: 1.0e-7
+    threshold: 1.0e-4
+```
 
-* `layer_size`: List defining the number of neurons in each layer.
-* `dr`: List defining the dropout rates for each layer.
-* `batch_norm`: Enable/Disable batch normalization. Set to `True` for enabling.
+The loader also supports `lambda` and `cosine-annealing`; see
+`mlguess/torch/scheduler.py` for their parameters. Modern PyTorch's plateau
+scheduler no longer accepts the old `verbose` option.
 
-### Evidential Layer
+## Model output configuration
 
-* `lng`: Use evidential layer if `True`. Useful for uncertainty quantification.
+`input_size` and `output_size` accept counts or feature-name lists. `layer_size`
+specifies hidden widths; `dr` specifies dropout rates. `lng: true` selects the
+Normal–Inverse-Gamma regression head. The bundled regression applications use
+evidential regression losses; use the notebooks/library for point and Gaussian
+regression training examples.
 
-### Classifier Models
+For the classifier application, use `lng: false`, `softmax: false`, and set
+`output_size` to the number of classes. `trainer.uncertainty: true` selects the
+evidential classification loss and uncertainty calculation; `false` selects
+ordinary cross-entropy training on logits. The trainer converts outputs to
+probabilities for metrics and exported predictions. `output_activation` is a
+Keras setting and is not a PyTorch model constructor argument.
 
-* `output_activation`: Set to `softmax` for standard classification. If not set, the model will use evidential classification.
+The [uncertainty guide](../../UNCERTAINTY.md) documents ensemble and MC-dropout
+APIs, variance units, within/between epistemic components, finite-mixture
+normalization, and output-kind selection. Run
+`python examples/uncertainty_quickstart.py` for a self-contained CPU example.
+
+## Optional distributed and PBS integrations
+
+The library retains DDP and FSDP wrappers, but multi-rank Trainer execution
+raises explicitly because global validation and model selection are unsupported.
+The bundled applications currently
+reject `world_size > 1` before training because rank-local predictions cannot
+be attached safely to full DataFrames. Multi-rank application CSV export is
+unsupported. GPU, FSDP, and real multi-node execution were not exercised in
+this CPU audit.
+
+PBS helpers are cluster-specific script generators for Casper/Derecho. They
+require local cluster commands and credentials. Inspect a script without
+submitting a job by calling `launch_pbs_jobs(..., launch=False)` or
+`launch_distributed_jobs(..., launch=False)`. The application flag `-l 1`
+submits a job; it is not a local CPU setup step. See `config/pbs_example.yaml`
+for configuration, and the validation report for the mocked dry-run coverage.

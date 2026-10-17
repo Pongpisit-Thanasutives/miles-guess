@@ -1,4 +1,5 @@
 import torch
+import torch.nn.functional as F
 from torch import nn
 from torch.nn.utils import spectral_norm as SpectralNorm
 
@@ -33,7 +34,7 @@ class LinearNormalGamma(nn.Module):
             self.linear = nn.Linear(in_channels, out_channels * 4)
 
     def evidence(self, x):
-        """Applies a log transformation to the input with a shift.
+        """Apply softplus, evaluated stably to avoid exp overflow.
 
         Args:
             x (torch.Tensor): The input tensor.
@@ -41,7 +42,7 @@ class LinearNormalGamma(nn.Module):
         Returns:
             torch.Tensor: The transformed tensor.
         """
-        return torch.log(torch.exp(x) + 1)
+        return F.softplus(x)
 
     def forward(self, x):
         """Forward pass of the module.

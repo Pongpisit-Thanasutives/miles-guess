@@ -1,12 +1,13 @@
-import sys
 import keras
 import keras.ops as ops
 import keras.layers as layers
 import keras.optimizers as optimizers
 import numpy as np
+from scipy.special import digamma
+from mlguess.uncertainty import inverse_scale_moments, nig_uncertainties
 # from keras.layers import Dense, GaussianNoise, Dropout
 from mlguess.keras.layers import DenseNormalGamma, DenseNormal
-from mlguess.keras.losses import evidential_cat_loss, evidential_reg_loss, gaussian_nll
+from mlguess.keras.losses import evidential_cat_loss, evidential_reg_loss, gaussian_nll_per_sample
 from mlguess.keras.callbacks import ReportEpoch
 # from keras.optimizers import Adam, SGD
 
@@ -142,7 +143,7 @@ class CategoricalDNN(keras.models.Model):
         elif self.kernel_reg == "l1_l2":
             self.kernel_reg = keras.regularizers.L1L2(self.l1_weight, self.l2_weight)
         else:
-            self.kernel_reg = None
+            self.kernel_reg = keras.regularizers.get(self.kernel_reg)
 
         if self.optimizer == "adam":
             self.optimizer_obj = optimizers.Adam(learning_rate=self.lr,
@@ -151,6 +152,8 @@ class CategoricalDNN(keras.models.Model):
                                       epsilon=self.epsilon)
         elif self.optimizer == "sgd":
             self.optimizer_obj = optimizers.SGD(learning_rate=self.lr, momentum=self.sgd_momentum)
+        else:
+            self.optimizer_obj = optimizers.get(self.optimizer)
 
         if self.evidential:
             self.output_activation = "linear"
@@ -183,22 +186,25 @@ class CategoricalDNN(keras.models.Model):
         return mod
 
     def fit(self, x=None, y=None, **kwargs):
-
+        if y is not None and (self.evidential or self.loss == "categorical_crossentropy"):
+            labels = ops.convert_to_numpy(y)
+            if labels.ndim == 1 or (labels.ndim == 2 and labels.shape[1] == 1):
+                if np.any(labels != labels.astype(int)) or np.any(labels < 0) or np.any(labels >= self.n_classes):
+                    raise ValueError("Class labels must be integer indices in [0, n_classes)")
+                y = keras.utils.to_categorical(labels.reshape(-1), self.n_classes)
+        callbacks = list(kwargs.pop("callbacks", self.callbacks))
         if self.evidential:
-            e = keras.Variable(1.0)
-            report_epoch_callback = ReportEpoch(e)
+            callbacks = [callback for callback in callbacks if not isinstance(callback, ReportEpoch)]
+            report_epoch_callback = ReportEpoch(keras.Variable(1.0, trainable=False))
             self.loss = evidential_cat_loss(evi_coef=self.annealing_coeff,
                                             epoch_callback=report_epoch_callback)
-            self.callbacks.append(report_epoch_callback)
-
-        super().compile(loss=self.loss,
-                        optimizer=self.optimizer_obj,
-                        run_eagerly=False)
-
-        hist = super().fit(x, y, epochs=self.epochs, batch_size=self.batch_size,
-                           callbacks=self.callbacks, **kwargs)
-
-        return hist
+            callbacks.append(report_epoch_callback)
+        super().compile(loss=self.loss, optimizer=self.optimizer_obj,
+                        loss_weights=self.loss_weights, run_eagerly=False)
+        kwargs.setdefault("epochs", self.epochs)
+        kwargs.setdefault("batch_size", self.batch_size)
+        kwargs.setdefault("verbose", self.verbose)
+        return super().fit(x, y, callbacks=callbacks, **kwargs)
 
     def predict(self, x, return_uncertainties=True, **kwargs):
         """
@@ -236,32 +242,72 @@ class CategoricalDNN(keras.models.Model):
         return prob, u, aleatoric, epistemic
 
     def predict_dropout(self, x, mc_forward_passes=10, batch_size=None):
-        _batch_size = self.batch_size if batch_size is None else batch_size
-        y_prob = np.stack(
-            [
-                np.vstack(
-                    [
-                        self(ops.expand_dims(lx, axis=-1), training=True)
-                        for lx in np.array_split(x, x.shape[0] // _batch_size)
-                    ]
-                )
-                for _ in range(mc_forward_passes)
-            ]
-        )
-        pred_probs = y_prob.mean(axis=0)
-        epistemic = y_prob.var(axis=0)
-        aleatoric = np.mean(y_prob * (1.0 - y_prob), axis=0)
+        """Return categorical moments from equally weighted stochastic passes.
 
-        # Calculating entropy across multiple MCD forward passes
-        epsilon = sys.float_info.min
+        Returns ``(probability, aleatoric_variance, epistemic_variance,
+        entropy, mutual_information)``. Variances describe a one-hot class
+        indicator, so their sum is ``probability * (1 - probability)``.
+        For evidential networks the epistemic variance includes both the
+        within-pass Dirichlet variance and variance of the pass means.
+        Mutual information likewise includes both levels of uncertainty:
+        ``H(mean probability) - E[H(categorical probability)]``; the inner
+        expectation is taken over the Dirichlet distribution when applicable.
+        Standard networks may emit softmax probabilities or linear logits.
+        Batch-normalisation and additive-noise layers remain in inference mode.
+        Sampling temporarily overrides dropout calls; do not run concurrent
+        calls on this model while sampling.
+        """
+        if not isinstance(mc_forward_passes, (int, np.integer)) or mc_forward_passes < 1:
+            raise ValueError("mc_forward_passes must be a positive integer")
+        size = self.batch_size if batch_size is None else batch_size
+        if not isinstance(size, (int, np.integer)) or size < 1:
+            raise ValueError("batch_size must be a positive integer")
+        x = ops.convert_to_numpy(x)
+        if x.ndim != 2 or x.shape[0] == 0:
+            raise ValueError("x must be a nonempty (samples, features) array")
+        activation = keras.activations.serialize(keras.activations.get(self.output_activation))
+        if not self.evidential and activation not in ("softmax", "linear"):
+            raise ValueError("Categorical dropout requires softmax probabilities or linear logits")
+
+        from mlguess.keras.monte_carlo import mc_raw_predictions
+
+        probabilities, aleatoric_passes, epistemic_passes, expected_entropies = [], [], [], []
+        for output in mc_raw_predictions(self, x, mc_forward_passes, size):
+            output = output.astype(np.float64, copy=False)
+            if self.evidential:
+                alpha = np.maximum(output, 0) + 1
+                concentration = alpha.sum(axis=-1, keepdims=True)
+                probability = alpha / concentration
+                within_epistemic = probability * (1 - probability) / (concentration + 1)
+                aleatoric = probability * (1 - probability) - within_epistemic
+                expected_entropy = (digamma(concentration + 1).squeeze(-1)
+                                    - np.sum(probability * digamma(alpha + 1), axis=-1))
+            else:
+                if activation == "linear":
+                    exponential = np.exp(output - np.max(output, axis=-1, keepdims=True))
+                    probability = exponential / exponential.sum(axis=-1, keepdims=True)
+                else:
+                    probability = output
+                within_epistemic = np.zeros_like(probability)
+                aleatoric = probability * (1 - probability)
+                expected_entropy = -np.sum(
+                    probability * np.log(np.maximum(probability, np.finfo(float).tiny)), axis=-1)
+            probabilities.append(probability)
+            aleatoric_passes.append(aleatoric)
+            epistemic_passes.append(within_epistemic)
+            expected_entropies.append(expected_entropy)
+        probabilities = np.stack(probabilities)
+        pred_probs = probabilities.mean(axis=0)
+        aleatoric = np.mean(aleatoric_passes, axis=0)
+        epistemic = np.mean(epistemic_passes, axis=0) + probabilities.var(axis=0, ddof=0)
         entropy = -np.sum(
-            pred_probs * np.log(np.maximum(pred_probs, epsilon)), axis=-1
-        )  # shape (n_samples,)
-        # Calculating mutual information across multiple MCD forward passes
-        mutual_info = entropy - np.mean(
-            np.sum(-np.array(y_prob) * np.log(np.maximum(y_prob, epsilon)), axis=-1), axis=0
-        )  # shape (n_samples,)
+            pred_probs * np.log(np.maximum(pred_probs, np.finfo(float).tiny)), axis=-1)
+        mutual_info = entropy - np.mean(expected_entropies, axis=0)
         return pred_probs, aleatoric, epistemic, entropy, mutual_info
+
+    def compile_from_config(self, config):
+        super().compile_from_config(config)
+        self.optimizer_obj = self.optimizer
 
     def get_config(self):
         base_config = super().get_config()
@@ -390,7 +436,7 @@ class RegressorDNN(keras.models.Model):
         elif self.kernel_reg == "l1_l2":
             self.kernel_reg = keras.regularizers.L1L2(self.l1_weight, self.l2_weight)
         else:
-            self.kernel_reg = None
+            self.kernel_reg = keras.regularizers.get(self.kernel_reg)
 
         if self.optimizer == "adam":
             self.optimizer_obj = optimizers.Adam(learning_rate=self.lr,
@@ -399,6 +445,8 @@ class RegressorDNN(keras.models.Model):
                                       epsilon=self.epsilon)
         elif self.optimizer == "sgd":
             self.optimizer_obj = optimizers.SGD(learning_rate=self.lr, momentum=self.sgd_momentum)
+        else:
+            self.optimizer_obj = optimizers.get(self.optimizer)
 
         self.model_layers = []
         self.model_layers.append(layers.Dense(self.n_inputs,
@@ -431,57 +479,106 @@ class RegressorDNN(keras.models.Model):
         return layer_output
 
     def fit(self, x=None, y=None, **kwargs):
+        # A single target still needs a target axis for the distribution losses.
+        if y is not None:
+            y = ops.convert_to_numpy(y)
+            if y.ndim == 1 and self.n_output_tasks == 1:
+                y = y[:, None]
+            if y.ndim != 2 or y.shape[1] != self.n_output_tasks:
+                raise ValueError("y must have shape (samples, n_output_tasks)")
+
+        validation_data = kwargs.get("validation_data")
+        if isinstance(validation_data, tuple) and len(validation_data) in (2, 3) and self.n_output_tasks == 1:
+            validation_y = ops.convert_to_numpy(validation_data[1])
+            if validation_y.ndim == 1:
+                kwargs["validation_data"] = (validation_data[0], validation_y[:, None], *validation_data[2:])
 
         if self.evidential:
             self.loss = evidential_reg_loss(evi_coef=self.evi_coeff)
         elif self.uncertainty:
-            self.loss = gaussian_nll
+            self.loss = gaussian_nll_per_sample
         super().compile(optimizer=self.optimizer_obj, loss=self.loss)
-        hist = super().fit(x, y, epochs=self.epochs, batch_size=self.batch_size, **kwargs)
-        self.training_var = np.var(y, axis=-1)
-
+        kwargs.setdefault("epochs", self.epochs)
+        kwargs.setdefault("batch_size", self.batch_size)
+        kwargs.setdefault("verbose", self.verbose)
+        hist = super().fit(x, y, **kwargs)
+        if y is not None:
+            # Descriptive metadata only: the likelihood already learns variance
+            # in the units of y, so multiplying by this again is incorrect.
+            self.training_var = np.var(y, axis=0)
         return hist
 
-    def predict(self, x, return_uncertainties=True, batch_size=1000, **kwargs):
-        """Args:
-            x: Input data
-            batch_size: Size of batch to predict
-            return_uncertainties: Returns derived uncertainties from evidential distribution parameters.
-                                  If False, return the raw parameters themselves (mu, gamma, alpha, beta).
+    def predict(self, x, return_uncertainties=True, batch_size=1000, y_scaler=None, **kwargs):
+        """Predict with the existing output contract.
 
-        Returns:
-            If return_uncertainties is True: np.array(mu, aleatoric uncertainty, epistemic uncertainty)
-            Else If return_uncertainties is False: np.array(mu, gamma, alpha, beta)
+        Evidential models return concatenated ``[mean, aleatoric_variance,
+        epistemic_variance]`` when ``return_uncertainties=True``, or raw
+        ``[mean, v, alpha, beta]`` otherwise. Gaussian models retain their
+        historical raw ``[mean, standard_deviation]`` output for either flag;
+        use :meth:`predict_uncertainties` to obtain Gaussian variances.
+        Ordinary regressors return means with ``return_uncertainties=False``.
+
+        ``y_scaler`` is accepted only for derived evidential moments. Its
+        inverse transform must be affine; variances use the squared inverse
+        slope. Raw distribution parameters remain in training-target units.
         """
         if not isinstance(return_uncertainties, bool):
             raise ValueError("return_uncertainties must be a boolean")
+        if not self.evidential and not self.uncertainty and return_uncertainties:
+            raise NotImplementedError("Set return_uncertainties=False for a deterministic regressor")
+        if y_scaler is not None and y_scaler is not False and not (self.evidential and return_uncertainties):
+            raise ValueError("Use predict_uncertainties(..., y_scaler=...) to transform distribution moments")
+        output = super().predict(x, batch_size=batch_size, **kwargs)
+        if self.evidential and return_uncertainties:
+            return self.calc_uncertainties(output, y_scaler=y_scaler)
+        return output
 
-        if (not self.evidential) and (not self.uncertainty) and return_uncertainties:
-            raise NotImplementedError("You can only return uncertainty estimates when 'evidential' or 'uncertainty' is"
-                                      " True. Otherwise you can set 'return_uncertainties' to False to return predictions.")
+    def predict_uncertainties(self, x, y_scaler=None, batch_size=1000, **kwargs):
+        """Return ``[mean, aleatoric_variance, epistemic_variance]`` for either distribution.
 
-        elif self.evidential and return_uncertainties:
-            return self.calc_uncertainties(super().predict(x, batch_size=batch_size))
+        Gaussian epistemic variance is zero for a single fitted model. Between
+        model or dropout variation must be added by an ensemble calculation.
+        """
+        if not (self.evidential or self.uncertainty):
+            raise NotImplementedError("Distribution moments require an evidential or Gaussian model")
+        output = super().predict(x, batch_size=batch_size, **kwargs)
+        return self.calc_uncertainties(output, y_scaler=y_scaler)
 
+    def calc_uncertainties(self, preds, y_scaler=None):
+        """Convert raw distribution parameters to mean and variance components.
+
+        Raw NIG parameters are ``[mean, v, alpha, beta]``; raw Gaussian
+        parameters are ``[mean, sigma]`` with sigma a standard deviation.
+        Return concatenated ``[mean, aleatoric_variance, epistemic_variance]``.
+        ``training_var`` is metadata and is never an uncertainty multiplier.
+        Without ``y_scaler``, all moments remain in training-target units.
+        Parameters must be finite; NIG moments require ``v > 0``,
+        ``alpha > 1``, ``beta > 0`` and Gaussian sigma must be nonnegative.
+        """
+        preds = np.asarray(ops.convert_to_numpy(preds))
+        if preds.ndim != 2:
+            raise ValueError("preds must have shape (samples, distribution parameters)")
+        if self.evidential:
+            if preds.shape[-1] != 4 * self.n_output_tasks:
+                raise ValueError("Expected four NIG parameters per target")
+            mu, v, alpha, beta = np.split(preds, 4, axis=-1)
+            mu, aleatoric, epistemic, _ = nig_uncertainties(mu, v, alpha, beta)
+        elif self.uncertainty:
+            if preds.shape[-1] != 2 * self.n_output_tasks:
+                raise ValueError("Expected Gaussian mean and standard deviation per target")
+            mu, sigma = np.split(preds, 2, axis=-1)
+            if not np.all(np.isfinite(preds)) or np.any(sigma < 0):
+                raise ValueError("Gaussian moments require finite means and nonnegative finite standard deviations")
+            aleatoric = np.square(sigma)
+            epistemic = np.zeros_like(aleatoric)
         else:
-            return super().predict(x, batch_size=batch_size)
-
-    def calc_uncertainties(self, preds):
-
-        mu, v, alpha, beta = np.split(preds, self.N_EVI_OUTPUT_PARAMS, axis=-1)
-        aleatoric = beta / (alpha - 1)
-        epistemic = beta / (v * (alpha - 1))
-
-        if len(mu.shape) == 1:
-            mu = np.expand_dims(mu, 1)
-            aleatoric = np.expand_dims(aleatoric, 1)
-            epistemic = np.expand_dims(epistemic, 1)
-
-        for i in range(mu.shape[-1]):
-            aleatoric[:, i] *= self.training_var[i]
-            epistemic[:, i] *= self.training_var[i]
-
+            raise NotImplementedError("Distribution moments require an evidential or Gaussian model")
+        mu, aleatoric, epistemic = inverse_scale_moments(mu, aleatoric, epistemic, y_scaler)
         return np.concatenate([mu, aleatoric, epistemic], axis=-1)
+
+    def compile_from_config(self, config):
+        super().compile_from_config(config)
+        self.optimizer_obj = self.optimizer
 
     def get_config(self):
 

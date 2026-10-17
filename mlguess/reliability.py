@@ -30,14 +30,22 @@ def compute_calibration(true_labels, pred_labels, confidences, num_bins=10):
             expected_calibration_error: a weighted average of all calibration gaps
             max_calibration_error: the largest calibration gap across all bins
     """
+    true_labels = np.asarray(true_labels)
+    pred_labels = np.asarray(pred_labels)
+    confidences = np.asarray(confidences, dtype=float)
+    if any(x.ndim != 1 or x.size == 0 for x in (true_labels, pred_labels, confidences)):
+        raise ValueError("Labels and confidences must be nonempty one-dimensional arrays")
+    if not np.all(np.isfinite(confidences)) or np.any((confidences < 0) | (confidences > 1)):
+        raise ValueError("Confidences must be finite probabilities in [0, 1]")
     if len(confidences) != len(pred_labels) or len(confidences) != len(true_labels):
         raise TypeError("Lengths of confidences, pred_labels, and true_labels should be equal.")
 
-    if num_bins <= 0:
+    if not isinstance(num_bins, (int, np.integer)) or num_bins <= 0:
         raise TypeError("Number of bins should be greater than zero.")
 
     bins = np.linspace(0.0, 1.0, num_bins + 1)
     indices = np.digitize(confidences, bins, right=True)
+    indices = np.where(np.asarray(confidences) == 0, 1, indices)
 
     bin_accuracies = np.zeros(num_bins, dtype=np.float64)
     bin_confidences = np.zeros(num_bins, dtype=np.float64)
@@ -109,7 +117,8 @@ def _reliability_diagram_subplot(ax, bin_data,
     alphas = 0.3
     min_count = np.min(counts)
     max_count = np.max(counts)
-    normalized_counts = (counts - min_count) / (max_count - min_count)
+    normalized_counts = ((counts - min_count) / (max_count - min_count)
+                         if max_count > min_count else np.ones_like(counts, dtype=float))
 
     if draw_bin_importance == "alpha":
         alphas = 0.2 + 0.8 * normalized_counts
@@ -198,8 +207,9 @@ def _reliability_diagram_combined(bin_data,
     bin_data["counts"] = orig_counts
 
     # Also negate the ticks for the upside-down histogram.
-    new_ticks = np.abs(ax[1].get_yticks()).astype(np.int)
-    ax[1].set_yticklabels(new_ticks)
+    ticks = ax[1].get_yticks()
+    new_ticks = np.abs(ticks).astype(int)
+    ax[1].set_yticks(ticks, labels=new_ticks)
 
     if return_fig: return fig
 
@@ -266,12 +276,14 @@ def reliability_diagrams(results, num_bins=10,
         dpi: setting for matplotlib
         return_fig: if True, returns the matplotlib Figure object
     """
+    if not results or num_cols <= 0:
+        raise ValueError("Provide at least one result and a positive num_cols.")
     ncols = num_cols
     nrows = (len(results) + ncols - 1) // ncols
     figsize = (ncols * 4, nrows * 4)
 
     fig, ax = plt.subplots(nrows=nrows, ncols=ncols, sharex=True, sharey=True,
-                           figsize=figsize, dpi=dpi, constrained_layout=True)
+                           figsize=figsize, dpi=dpi, constrained_layout=True, squeeze=False)
 
     for i, (plot_name, data) in enumerate(results.items()):
         y_true = data["true_labels"]

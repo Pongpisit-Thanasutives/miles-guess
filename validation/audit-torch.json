@@ -1,0 +1,4454 @@
+{
+  "schema_version": 1,
+  "scope": "All functions and class methods (including nested init_func) in mlguess/torch/*.py except metrics.py, which is audited separately. Executable __main__ demonstrations are outside the function inventory.",
+  "environment": {
+    "python": "3.11.17",
+    "torch": "2.14.1+cpu",
+    "numpy": "2.4.6",
+    "platform": "Linux CPU; native macOS and Windows were not executed here"
+  },
+  "status_meaning": {
+    "test": "Body executed in a passing scoped suite, or a targeted mock test documented below; does not imply every branch is exercised or error-free.",
+    "review": "Source reviewed, function body not executed by the scoped suite.",
+    "unexecuted": "Source reviewed, required native accelerator/distributed runtime unavailable."
+  },
+  "summary": {
+    "functions": 133,
+    "test": 131,
+    "unexecuted": 1,
+    "review": 1,
+    "executed_statements": 1353,
+    "statements": 1597,
+    "statement_coverage_percent": 84.72135253600501,
+    "executed_branches": 424,
+    "branches": 586,
+    "branch_coverage_percent": 72.35494880546075
+  },
+  "validation": {
+    "command": "OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 COVERAGE_FILE=validation/.coverage-torch python -m pytest -q mlguess/tests/test_audit_torch.py mlguess/tests/test_audit_torch_checkpoint.py mlguess/tests/test_torch_model.py mlguess/tests/test_modern_core.py mlguess/tests/test_modern_trainers.py mlguess/tests/test_torch_lotv.py mlguess/tests/test_scientific_regression.py mlguess/tests/test_applications.py --cov=mlguess.torch --cov-branch --cov-report=json:validation/coverage-torch.json --junitxml=validation/audit-torch-junit.xml",
+    "passed": 158,
+    "skipped": 1,
+    "failed": 0,
+    "skip_reason": "Host socket permission denial prevents real single-process CPU Gloo initialization. The skip is not evidence of working distributed collectives.",
+    "compileall": "python -m compileall -q mlguess/torch: passed",
+    "ruff": "ruff check mlguess/torch mlguess/tests/test_audit_torch.py --select F: passed",
+    "post_test_cleanup": "Removed one unused import and three unused prediction-local calculations; no behavior changed. Coverage JSON regenerated against the final source; source line positions preserved.",
+    "supplemental_helpers": {
+      "command": "python -m pytest -q mlguess/tests/test_audit_torch.py -k 'legacy_device_helpers or alternative_evidence or uncertainty_alias or trainer_cleanup' --junitxml=validation/audit-torch-helpers.xml",
+      "passed": 12,
+      "deselected": 28,
+      "failed": 0,
+      "source_changes": false
+    }
+  },
+  "scientific_scope": "Loss equations and legacy numerical stabilizers are preserved. NIG pi now follows input precision/device. Previously silent class-weight omission, invalid labels and invalid concentrations are corrected/rejected. Gradient accumulation and metrics now honor sample/criterion denominators. Prior uncertainty corrections implement population finite-mixture law of total variance and exact affine variance scaling, with analytical tests.",
+  "limitations": [
+    "No native macOS/Windows execution here; CI workflow is the delivery mechanism for those platforms.",
+    "No actual CUDA AMP, accelerator FSDP or CPU Gloo collectives executed. Mocked API routing is explicitly marked.",
+    "Multi-rank Trainer and application execution is explicitly unsupported until global metrics, weighted gradient synchronization and sampler-padding deduplication are implemented and tested.",
+    "BatchNorm training on a singleton minibatch remains a native PyTorch restriction; use an appropriate batch size or disable batch normalization.",
+    "LipschitzMSELoss.tol is a legacy unused argument, now documented. Its batch-dependent modified-MSE coefficient intentionally remains unchanged.",
+    "Training/validate methods return per-minibatch diagnostics; fit validation and predict compute dataset-level nonlinear metrics. Per-minibatch training metrics are diagnostics, not globally recomputed epoch estimators.",
+    "Generic non-evidential classifiers are assumed to output logits unless they declare mc_output_kind=\"probabilities\".",
+    "Default public init_weights(init_gain=0.0) is preserved; DNN(weight_init=True) explicitly uses Kaiming initialization.",
+    "Function coverage means executed statements, not proof of all possible inputs or absence of errors."
+  ],
+  "changes": [
+    "load_scheduler unwraps library optimizer wrappers before native PyTorch scheduler construction.",
+    "FSDP checkpoint calls receive the native model and optimizer and explicitly request full optimizer state for unsharded saves.",
+    "Checkpoint executable example supplies required rank arguments.",
+    "Distributed wrapper accepts pathlib save locations, expands home paths, rejects CPU FSDP before optional imports, and resolves an unspecified CUDA index to the current device.",
+    "Explicit cosine step(epoch) follows the existing rounded warmup-excluding recurrence used by incremental step(), including backward epoch resets. Invalid shrinking/zero-length schedules are rejected before division by zero.",
+    "Unequal microbatches accumulate sample-weighted or weighted-CE gradients; sum-reduced losses are summed, and cosine scheduling advances on optimizer updates.",
+    "CPU inputs follow model floating dtype; one-target regression accepts vector labels without broadcasting; class labels validate integer/range semantics.",
+    "Classifier metrics/prediction outputs use probabilities; validation metrics in fit are computed over all selected validation samples rather than averaged minibatch nonlinear scores.",
+    "Trainer retains forward wrappers, saves underlying unprefixed model state, preserves sampler epoch changes, min/max best-metric selection, finite-value handling and resumed-epoch early-stopping offsets.",
+    "Direct multi-rank training fails explicitly, rank-zero owns logs and metadata writes, initialized FSDP device/offload placement is preserved, and inputs honor explicit compute device.",
+    "Spectral initialization changes weight_orig after a forward pass; parameterless buffered models preserve floating dtype; nonfinite categorical evidence is rejected.",
+    "EDL class weights supplied as lists/arrays now take effect exactly as tensor weights; invalid annealing and Dirichlet inputs fail explicitly.",
+    "NIG marginal-likelihood pi uses input precision/device; tol documentation now accurately states its legacy unused role."
+  ],
+  "files": {
+    "mlguess/torch/__init__.py": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "coverage": {
+        "covered_lines": 0,
+        "num_statements": 0,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 0,
+        "num_partial_branches": 0,
+        "covered_branches": 0,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      }
+    },
+    "mlguess/torch/checkpoint.py": {
+      "sha256": "c339a0f6d07233bd37e64f71643a0f158d2abd6f0ac18010f125f866ce599b42",
+      "coverage": {
+        "covered_lines": 154,
+        "num_statements": 184,
+        "percent_covered": 84.13461538461539,
+        "percent_covered_display": "84",
+        "missing_lines": 30,
+        "excluded_lines": 0,
+        "percent_statements_covered": 83.69565217391305,
+        "percent_statements_covered_display": "84",
+        "num_branches": 24,
+        "num_partial_branches": 3,
+        "covered_branches": 21,
+        "missing_branches": 3,
+        "percent_branches_covered": 87.5,
+        "percent_branches_covered_display": "88"
+      }
+    },
+    "mlguess/torch/class_losses.py": {
+      "sha256": "21f6851d3a45a5936bc66a25513a52212c1d9fff8791b61f8a287d1f0f4ed871",
+      "coverage": {
+        "covered_lines": 117,
+        "num_statements": 127,
+        "percent_covered": 90.56603773584905,
+        "percent_covered_display": "91",
+        "missing_lines": 10,
+        "excluded_lines": 0,
+        "percent_statements_covered": 92.1259842519685,
+        "percent_statements_covered_display": "92",
+        "num_branches": 32,
+        "num_partial_branches": 5,
+        "covered_branches": 27,
+        "missing_branches": 5,
+        "percent_branches_covered": 84.375,
+        "percent_branches_covered_display": "84"
+      }
+    },
+    "mlguess/torch/distributed.py": {
+      "sha256": "5f6b9d632a358c22911b6046b79df6c3a1a26ff94cb542dd9a156a840d5c838a",
+      "coverage": {
+        "covered_lines": 18,
+        "num_statements": 39,
+        "percent_covered": 49.01960784313726,
+        "percent_covered_display": "49",
+        "missing_lines": 21,
+        "excluded_lines": 0,
+        "percent_statements_covered": 46.15384615384615,
+        "percent_statements_covered_display": "46",
+        "num_branches": 12,
+        "num_partial_branches": 1,
+        "covered_branches": 7,
+        "missing_branches": 5,
+        "percent_branches_covered": 58.333333333333336,
+        "percent_branches_covered_display": "58"
+      }
+    },
+    "mlguess/torch/layers.py": {
+      "sha256": "d77377af01596d022c25377a714b795a0b1cf87b6bc1acab5cec5d4b6ecd17f6",
+      "coverage": {
+        "covered_lines": 16,
+        "num_statements": 16,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 2,
+        "num_partial_branches": 0,
+        "covered_branches": 2,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      }
+    },
+    "mlguess/torch/mc_dropout.py": {
+      "sha256": "970cd7fe0eb82527d7a7a94f5e1375a3a66ba40e9a6c7dcfa727de2c1396db84",
+      "coverage": {
+        "covered_lines": 151,
+        "num_statements": 169,
+        "percent_covered": 86.31178707224335,
+        "percent_covered_display": "86",
+        "missing_lines": 18,
+        "excluded_lines": 0,
+        "percent_statements_covered": 89.3491124260355,
+        "percent_statements_covered_display": "89",
+        "num_branches": 94,
+        "num_partial_branches": 18,
+        "covered_branches": 76,
+        "missing_branches": 18,
+        "percent_branches_covered": 80.85106382978724,
+        "percent_branches_covered_display": "81"
+      }
+    },
+    "mlguess/torch/mixed_precision.py": {
+      "sha256": "b359d7cc57e0499bddb29aba287bd7a9ed5adbf10d620736ede1af7ebd2dab8a",
+      "coverage": {
+        "covered_lines": 7,
+        "num_statements": 7,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 2,
+        "num_partial_branches": 0,
+        "covered_branches": 2,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      }
+    },
+    "mlguess/torch/models.py": {
+      "sha256": "86c6f6245d2dd37350a51e7fe72fe93e8085b649bc3b3ea1e395d0168a0e5927",
+      "coverage": {
+        "covered_lines": 131,
+        "num_statements": 159,
+        "percent_covered": 81.61434977578476,
+        "percent_covered_display": "82",
+        "missing_lines": 28,
+        "excluded_lines": 0,
+        "percent_statements_covered": 82.38993710691824,
+        "percent_statements_covered_display": "82",
+        "num_branches": 64,
+        "num_partial_branches": 11,
+        "covered_branches": 51,
+        "missing_branches": 13,
+        "percent_branches_covered": 79.6875,
+        "percent_branches_covered_display": "80"
+      }
+    },
+    "mlguess/torch/regression_losses.py": {
+      "sha256": "890623a5fc1b468be56bec6f23831d4e9cdfbe84120a45f77bcb1cf16c4db6de",
+      "coverage": {
+        "covered_lines": 77,
+        "num_statements": 80,
+        "percent_covered": 93.47826086956522,
+        "percent_covered_display": "93",
+        "missing_lines": 3,
+        "excluded_lines": 0,
+        "percent_statements_covered": 96.25,
+        "percent_statements_covered_display": "96",
+        "num_branches": 12,
+        "num_partial_branches": 1,
+        "covered_branches": 9,
+        "missing_branches": 3,
+        "percent_branches_covered": 75.0,
+        "percent_branches_covered_display": "75"
+      }
+    },
+    "mlguess/torch/scheduler.py": {
+      "sha256": "aa1d48d5d2729615fa00b1e5db49c9d3e402dc5006aa343e5255cb6962164507",
+      "coverage": {
+        "covered_lines": 103,
+        "num_statements": 122,
+        "percent_covered": 84.52380952380952,
+        "percent_covered_display": "85",
+        "missing_lines": 19,
+        "excluded_lines": 0,
+        "percent_statements_covered": 84.42622950819673,
+        "percent_statements_covered_display": "84",
+        "num_branches": 46,
+        "num_partial_branches": 3,
+        "covered_branches": 39,
+        "missing_branches": 7,
+        "percent_branches_covered": 84.78260869565217,
+        "percent_branches_covered_display": "85"
+      }
+    },
+    "mlguess/torch/trainer_classifier.py": {
+      "sha256": "4153b5a71000c088fd6a8b5d847d9e982196d09d52a4f807187d5afa657ba9e7",
+      "coverage": {
+        "covered_lines": 255,
+        "num_statements": 308,
+        "percent_covered": 76.8348623853211,
+        "percent_covered_display": "77",
+        "missing_lines": 53,
+        "excluded_lines": 0,
+        "percent_statements_covered": 82.79220779220779,
+        "percent_statements_covered_display": "83",
+        "num_branches": 128,
+        "num_partial_branches": 38,
+        "covered_branches": 80,
+        "missing_branches": 48,
+        "percent_branches_covered": 62.5,
+        "percent_branches_covered_display": "62"
+      }
+    },
+    "mlguess/torch/trainer_regression.py": {
+      "sha256": "a39a94ba25788f913dafe77a4272bf75ed9308c804276ab99bdfe1f94af4bb35",
+      "coverage": {
+        "covered_lines": 241,
+        "num_statements": 300,
+        "percent_covered": 73.25581395348837,
+        "percent_covered_display": "73",
+        "missing_lines": 59,
+        "excluded_lines": 0,
+        "percent_statements_covered": 80.33333333333333,
+        "percent_statements_covered_display": "80",
+        "num_branches": 130,
+        "num_partial_branches": 46,
+        "covered_branches": 74,
+        "missing_branches": 56,
+        "percent_branches_covered": 56.92307692307692,
+        "percent_branches_covered_display": "57"
+      }
+    },
+    "mlguess/torch/training_utils.py": {
+      "sha256": "8caa948339cedf52c6fbe6a83d4071aa56490bc82532e002f3992c9429488111",
+      "coverage": {
+        "covered_lines": 83,
+        "num_statements": 86,
+        "percent_covered": 94.44444444444444,
+        "percent_covered_display": "94",
+        "missing_lines": 3,
+        "excluded_lines": 0,
+        "percent_statements_covered": 96.51162790697674,
+        "percent_statements_covered_display": "97",
+        "num_branches": 40,
+        "num_partial_branches": 4,
+        "covered_branches": 36,
+        "missing_branches": 4,
+        "percent_branches_covered": 90.0,
+        "percent_branches_covered_display": "90"
+      }
+    }
+  },
+  "functions": [
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "_fsdp_types",
+      "line": 18,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_fsdp_import_helper_and_legacy_tensor_reshape"
+      ],
+      "notes": "Imports actual installed FSDP types; does not initialize distributed execution.",
+      "coverage": {
+        "covered_lines": 4,
+        "num_statements": 6,
+        "percent_covered": 66.66666666666667,
+        "percent_covered_display": "67",
+        "missing_lines": 2,
+        "excluded_lines": 0,
+        "percent_statements_covered": 66.66666666666667,
+        "percent_statements_covered_display": "67",
+        "num_branches": 0,
+        "num_partial_branches": 0,
+        "covered_branches": 0,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [
+        23,
+        24
+      ],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "load_model_state",
+      "line": 30,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_load_model_state_into_cpu_and_wrapped_model"
+      ],
+      "notes": "Raw/trainer model states, Path input, CPU placement and recursively wrapped modules.",
+      "coverage": {
+        "covered_lines": 12,
+        "num_statements": 13,
+        "percent_covered": 88.23529411764706,
+        "percent_covered_display": "88",
+        "missing_lines": 1,
+        "excluded_lines": 0,
+        "percent_statements_covered": 92.3076923076923,
+        "percent_statements_covered_display": "92",
+        "num_branches": 4,
+        "num_partial_branches": 1,
+        "covered_branches": 3,
+        "missing_branches": 1,
+        "percent_branches_covered": 75.0,
+        "percent_branches_covered_display": "75"
+      },
+      "unexecuted_lines": [
+        66
+      ],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "save_state_dict",
+      "line": 71,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_checkpoint_roundtrip_paths",
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_checkpoint_nested_optimizer_and_restricted_loading",
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_checkpoint_suffix_and_dependency_checks"
+      ],
+      "notes": "Real torch and safetensors CPU roundtrips, nested state detachment, missing dependency errors.",
+      "coverage": {
+        "covered_lines": 8,
+        "num_statements": 8,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 2,
+        "num_partial_branches": 0,
+        "covered_branches": 2,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "load_state_dict",
+      "line": 95,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_checkpoint_roundtrip_paths",
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_checkpoint_nested_optimizer_and_restricted_loading",
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_checkpoint_suffix_and_dependency_checks"
+      ],
+      "notes": "CPU mapping, pathlib input, restricted default pickle load, explicit trusted legacy opt-in.",
+      "coverage": {
+        "covered_lines": 11,
+        "num_statements": 11,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 4,
+        "num_partial_branches": 0,
+        "covered_branches": 4,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "is_dtensor_checkpoint",
+      "line": 129,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_checkpoint_suffix_and_dependency_checks",
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_checkpoint_roundtrip_paths"
+      ],
+      "notes": "Checkpoint suffix validation and safetensors dependency detection.",
+      "coverage": {
+        "covered_lines": 4,
+        "num_statements": 4,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 2,
+        "num_partial_branches": 0,
+        "covered_branches": 2,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "is_safetensor_checkpoint",
+      "line": 145,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_checkpoint_suffix_and_dependency_checks",
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_checkpoint_roundtrip_paths"
+      ],
+      "notes": "Checkpoint suffix validation and safetensors dependency detection.",
+      "coverage": {
+        "covered_lines": 4,
+        "num_statements": 4,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 2,
+        "num_partial_branches": 0,
+        "covered_branches": 2,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "is_safetensors_available",
+      "line": 161,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_checkpoint_suffix_and_dependency_checks",
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_checkpoint_roundtrip_paths"
+      ],
+      "notes": "Checkpoint suffix validation and safetensors dependency detection.",
+      "coverage": {
+        "covered_lines": 1,
+        "num_statements": 1,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 0,
+        "num_partial_branches": 0,
+        "covered_branches": 0,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "TorchFSDPCheckpointIO.__init__",
+      "line": 186,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_fsdp_optimizer_api_routing_with_mocks"
+      ],
+      "notes": "Real CPU serialization with mocked FSDP context, sharding and optimizer APIs; checks native optimizer/model routing, explicit full state and rank-zero file writes.",
+      "unexecuted_branches": "No FSDP collectives or accelerator execution; mock tests only for distributed API contracts.",
+      "coverage": {
+        "covered_lines": 1,
+        "num_statements": 1,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 0,
+        "num_partial_branches": 0,
+        "covered_branches": 0,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "TorchFSDPCheckpointIO.load_unsharded_model",
+      "line": 189,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_load_model_state_into_cpu_and_wrapped_model"
+      ],
+      "notes": "Real raw-state load into an ordinary CPU model. Accelerator FSDP state loading not executed.",
+      "unexecuted_branches": "FSDP runtime unavailable.",
+      "coverage": {
+        "covered_lines": 3,
+        "num_statements": 3,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 0,
+        "num_partial_branches": 0,
+        "covered_branches": 0,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "TorchFSDPCheckpointIO.load_unsharded_optimizer",
+      "line": 194,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_fsdp_optimizer_api_routing_with_mocks"
+      ],
+      "notes": "Real CPU serialization with mocked FSDP context, sharding and optimizer APIs; checks native optimizer/model routing, explicit full state and rank-zero file writes.",
+      "unexecuted_branches": "No FSDP collectives or accelerator execution; mock tests only for distributed API contracts.",
+      "coverage": {
+        "covered_lines": 5,
+        "num_statements": 5,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 0,
+        "num_partial_branches": 0,
+        "covered_branches": 0,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "TorchFSDPCheckpointIO.save_unsharded_model",
+      "line": 206,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_fsdp_optimizer_api_routing_with_mocks"
+      ],
+      "notes": "Real CPU serialization with mocked FSDP context, sharding and optimizer APIs; checks native optimizer/model routing, explicit full state and rank-zero file writes.",
+      "unexecuted_branches": "No FSDP collectives or accelerator execution; mock tests only for distributed API contracts.",
+      "coverage": {
+        "covered_lines": 7,
+        "num_statements": 7,
+        "percent_covered": 88.88888888888889,
+        "percent_covered_display": "89",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 2,
+        "num_partial_branches": 1,
+        "covered_branches": 1,
+        "missing_branches": 1,
+        "percent_branches_covered": 50.0,
+        "percent_branches_covered_display": "50"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "TorchFSDPCheckpointIO.save_unsharded_optimizer",
+      "line": 217,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_fsdp_optimizer_api_routing_with_mocks"
+      ],
+      "notes": "Real CPU serialization with mocked FSDP context, sharding and optimizer APIs; checks native optimizer/model routing, explicit full state and rank-zero file writes.",
+      "unexecuted_branches": "No FSDP collectives or accelerator execution; mock tests only for distributed API contracts.",
+      "coverage": {
+        "covered_lines": 7,
+        "num_statements": 7,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 2,
+        "num_partial_branches": 0,
+        "covered_branches": 2,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "ModelWrapper.__init__",
+      "line": 244,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_load_model_state_into_cpu_and_wrapped_model"
+      ],
+      "notes": "Nested module unwrap and forwarded CPU predictions match the underlying model.",
+      "coverage": {
+        "covered_lines": 2,
+        "num_statements": 2,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 0,
+        "num_partial_branches": 0,
+        "covered_branches": 0,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "ModelWrapper.unwrap",
+      "line": 248,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_load_model_state_into_cpu_and_wrapped_model"
+      ],
+      "notes": "Nested module unwrap and forwarded CPU predictions match the underlying model.",
+      "coverage": {
+        "covered_lines": 3,
+        "num_statements": 3,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 2,
+        "num_partial_branches": 0,
+        "covered_branches": 2,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "ModelWrapper.forward",
+      "line": 255,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_load_model_state_into_cpu_and_wrapped_model"
+      ],
+      "notes": "Nested module unwrap and forwarded CPU predictions match the underlying model.",
+      "coverage": {
+        "covered_lines": 1,
+        "num_statements": 1,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 0,
+        "num_partial_branches": 0,
+        "covered_branches": 0,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "TorchFSDPModel.__init__",
+      "line": 260,
+      "status": "unexecuted",
+      "tests": [],
+      "notes": "Source reviewed: imports FSDP lazily and constructs FSDP around the provided module.",
+      "unexecuted_branches": "Requires initialized distributed runtime and accelerator; neither available.",
+      "coverage": {
+        "covered_lines": 0,
+        "num_statements": 3,
+        "percent_covered": 0.0,
+        "percent_covered_display": "0",
+        "missing_lines": 3,
+        "excluded_lines": 0,
+        "percent_statements_covered": 0.0,
+        "percent_statements_covered_display": "0",
+        "num_branches": 0,
+        "num_partial_branches": 0,
+        "covered_branches": 0,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [
+        261,
+        262,
+        263
+      ],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "TorchFSDPModel.unwrap",
+      "line": 265,
+      "status": "review",
+      "tests": [],
+      "notes": "Source reviewed: returns the stored native FSDP module; no computation or transformation.",
+      "unexecuted_branches": "Not executed on a real FSDP instance.",
+      "coverage": {
+        "covered_lines": 0,
+        "num_statements": 1,
+        "percent_covered": 0.0,
+        "percent_covered_display": "0",
+        "missing_lines": 1,
+        "excluded_lines": 0,
+        "percent_statements_covered": 0.0,
+        "percent_statements_covered_display": "0",
+        "num_branches": 0,
+        "num_partial_branches": 0,
+        "covered_branches": 0,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [
+        266
+      ],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "TorchFSDPModel.concat_and_reshape",
+      "line": 268,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_fsdp_import_helper_and_legacy_tensor_reshape"
+      ],
+      "notes": "Pure CPU tensor reshape and concatenation compared against independently indexed slices; no FSDP construction.",
+      "coverage": {
+        "covered_lines": 3,
+        "num_statements": 3,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 0,
+        "num_partial_branches": 0,
+        "covered_branches": 0,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "OptimizerWrapper.__init__",
+      "line": 281,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_optimizer_wrapper_training_state_and_gradients"
+      ],
+      "notes": "CPU SGD update, direct and supplied-gradient backward, parameter groups, gradient clipping, state restore and explicit unsupported mixed-precision methods.",
+      "coverage": {
+        "covered_lines": 1,
+        "num_statements": 1,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 0,
+        "num_partial_branches": 0,
+        "covered_branches": 0,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "OptimizerWrapper.parameters",
+      "line": 285,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_optimizer_wrapper_training_state_and_gradients"
+      ],
+      "notes": "CPU SGD update, direct and supplied-gradient backward, parameter groups, gradient clipping, state restore and explicit unsupported mixed-precision methods.",
+      "coverage": {
+        "covered_lines": 4,
+        "num_statements": 4,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 2,
+        "num_partial_branches": 0,
+        "covered_branches": 2,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "OptimizerWrapper.param_groups",
+      "line": 293,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_optimizer_wrapper_training_state_and_gradients"
+      ],
+      "notes": "CPU SGD update, direct and supplied-gradient backward, parameter groups, gradient clipping, state restore and explicit unsupported mixed-precision methods.",
+      "coverage": {
+        "covered_lines": 1,
+        "num_statements": 1,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 0,
+        "num_partial_branches": 0,
+        "covered_branches": 0,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "OptimizerWrapper.defaults",
+      "line": 297,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_optimizer_wrapper_training_state_and_gradients"
+      ],
+      "notes": "CPU SGD update, direct and supplied-gradient backward, parameter groups, gradient clipping, state restore and explicit unsupported mixed-precision methods.",
+      "coverage": {
+        "covered_lines": 1,
+        "num_statements": 1,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 0,
+        "num_partial_branches": 0,
+        "covered_branches": 0,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "OptimizerWrapper.add_param_group",
+      "line": 300,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_optimizer_wrapper_training_state_and_gradients"
+      ],
+      "notes": "CPU SGD update, direct and supplied-gradient backward, parameter groups, gradient clipping, state restore and explicit unsupported mixed-precision methods.",
+      "coverage": {
+        "covered_lines": 1,
+        "num_statements": 1,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 0,
+        "num_partial_branches": 0,
+        "covered_branches": 0,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "OptimizerWrapper.step",
+      "line": 303,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_optimizer_wrapper_training_state_and_gradients"
+      ],
+      "notes": "CPU SGD update, direct and supplied-gradient backward, parameter groups, gradient clipping, state restore and explicit unsupported mixed-precision methods.",
+      "coverage": {
+        "covered_lines": 1,
+        "num_statements": 1,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 0,
+        "num_partial_branches": 0,
+        "covered_branches": 0,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "OptimizerWrapper.zero_grad",
+      "line": 308,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_optimizer_wrapper_training_state_and_gradients"
+      ],
+      "notes": "CPU SGD update, direct and supplied-gradient backward, parameter groups, gradient clipping, state restore and explicit unsupported mixed-precision methods.",
+      "coverage": {
+        "covered_lines": 1,
+        "num_statements": 1,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 0,
+        "num_partial_branches": 0,
+        "covered_branches": 0,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "OptimizerWrapper.backward",
+      "line": 313,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_optimizer_wrapper_training_state_and_gradients"
+      ],
+      "notes": "CPU SGD update, direct and supplied-gradient backward, parameter groups, gradient clipping, state restore and explicit unsupported mixed-precision methods.",
+      "coverage": {
+        "covered_lines": 1,
+        "num_statements": 1,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 0,
+        "num_partial_branches": 0,
+        "covered_branches": 0,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "OptimizerWrapper.backward_by_grad",
+      "line": 318,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_optimizer_wrapper_training_state_and_gradients"
+      ],
+      "notes": "CPU SGD update, direct and supplied-gradient backward, parameter groups, gradient clipping, state restore and explicit unsupported mixed-precision methods.",
+      "coverage": {
+        "covered_lines": 1,
+        "num_statements": 1,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 0,
+        "num_partial_branches": 0,
+        "covered_branches": 0,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "OptimizerWrapper.state_dict",
+      "line": 321,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_optimizer_wrapper_training_state_and_gradients"
+      ],
+      "notes": "CPU SGD update, direct and supplied-gradient backward, parameter groups, gradient clipping, state restore and explicit unsupported mixed-precision methods.",
+      "coverage": {
+        "covered_lines": 1,
+        "num_statements": 1,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 0,
+        "num_partial_branches": 0,
+        "covered_branches": 0,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "OptimizerWrapper.load_state_dict",
+      "line": 326,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_optimizer_wrapper_training_state_and_gradients"
+      ],
+      "notes": "CPU SGD update, direct and supplied-gradient backward, parameter groups, gradient clipping, state restore and explicit unsupported mixed-precision methods.",
+      "coverage": {
+        "covered_lines": 1,
+        "num_statements": 1,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 0,
+        "num_partial_branches": 0,
+        "covered_branches": 0,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "OptimizerWrapper.clip_grad_by_value",
+      "line": 331,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_optimizer_wrapper_training_state_and_gradients"
+      ],
+      "notes": "CPU SGD update, direct and supplied-gradient backward, parameter groups, gradient clipping, state restore and explicit unsupported mixed-precision methods.",
+      "coverage": {
+        "covered_lines": 1,
+        "num_statements": 1,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 0,
+        "num_partial_branches": 0,
+        "covered_branches": 0,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "OptimizerWrapper.clip_grad_by_norm",
+      "line": 343,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_optimizer_wrapper_training_state_and_gradients"
+      ],
+      "notes": "CPU SGD update, direct and supplied-gradient backward, parameter groups, gradient clipping, state restore and explicit unsupported mixed-precision methods.",
+      "coverage": {
+        "covered_lines": 2,
+        "num_statements": 2,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 0,
+        "num_partial_branches": 0,
+        "covered_branches": 0,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "OptimizerWrapper.scale_loss",
+      "line": 365,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_optimizer_wrapper_training_state_and_gradients"
+      ],
+      "notes": "CPU SGD update, direct and supplied-gradient backward, parameter groups, gradient clipping, state restore and explicit unsupported mixed-precision methods.",
+      "coverage": {
+        "covered_lines": 1,
+        "num_statements": 1,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 0,
+        "num_partial_branches": 0,
+        "covered_branches": 0,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "OptimizerWrapper.unscale_grad",
+      "line": 377,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_optimizer_wrapper_training_state_and_gradients"
+      ],
+      "notes": "CPU SGD update, direct and supplied-gradient backward, parameter groups, gradient clipping, state restore and explicit unsupported mixed-precision methods.",
+      "coverage": {
+        "covered_lines": 1,
+        "num_statements": 1,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 0,
+        "num_partial_branches": 0,
+        "covered_branches": 0,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "OptimizerWrapper.unwrap",
+      "line": 386,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_optimizer_wrapper_training_state_and_gradients"
+      ],
+      "notes": "CPU SGD update, direct and supplied-gradient backward, parameter groups, gradient clipping, state restore and explicit unsupported mixed-precision methods.",
+      "coverage": {
+        "covered_lines": 1,
+        "num_statements": 1,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 0,
+        "num_partial_branches": 0,
+        "covered_branches": 0,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "FSDPOptimizerWrapper.__init__",
+      "line": 393,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_fsdp_optimizer_api_routing_with_mocks"
+      ],
+      "notes": "Wrapper construction and nested native-model unwrapping with CPU module/optimizer; actual FSDP remains unexecuted.",
+      "unexecuted_branches": "No accelerator FSDP runtime.",
+      "coverage": {
+        "covered_lines": 2,
+        "num_statements": 2,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 0,
+        "num_partial_branches": 0,
+        "covered_branches": 0,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "FSDPOptimizerWrapper.unwrap_model",
+      "line": 397,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_fsdp_optimizer_api_routing_with_mocks"
+      ],
+      "notes": "Wrapper construction and nested native-model unwrapping with CPU module/optimizer; actual FSDP remains unexecuted.",
+      "unexecuted_branches": "No accelerator FSDP runtime.",
+      "coverage": {
+        "covered_lines": 1,
+        "num_statements": 1,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 0,
+        "num_partial_branches": 0,
+        "covered_branches": 0,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/class_losses.py",
+      "function": "_annealing_coefficient",
+      "line": 6,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_scientific_regression.py",
+        "mlguess/tests/test_modern_core.py",
+        "mlguess/tests/test_audit_torch.py"
+      ],
+      "notes": "Dirichlet objectives checked against analytical identities and torch.distributions KL. Array/list/tensor class weights and explicit dtype/device handling tested; original objective equations preserved.",
+      "coverage": {
+        "covered_lines": 3,
+        "num_statements": 3,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 2,
+        "num_partial_branches": 0,
+        "covered_branches": 2,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/class_losses.py",
+      "function": "_class_weights",
+      "line": 12,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_scientific_regression.py",
+        "mlguess/tests/test_modern_core.py",
+        "mlguess/tests/test_audit_torch.py"
+      ],
+      "notes": "Dirichlet objectives checked against analytical identities and torch.distributions KL. Array/list/tensor class weights and explicit dtype/device handling tested; original objective equations preserved.",
+      "coverage": {
+        "covered_lines": 3,
+        "num_statements": 4,
+        "percent_covered": 66.66666666666667,
+        "percent_covered_display": "67",
+        "missing_lines": 1,
+        "excluded_lines": 0,
+        "percent_statements_covered": 75.0,
+        "percent_statements_covered_display": "75",
+        "num_branches": 2,
+        "num_partial_branches": 1,
+        "covered_branches": 1,
+        "missing_branches": 1,
+        "percent_branches_covered": 50.0,
+        "percent_branches_covered_display": "50"
+      },
+      "unexecuted_lines": [
+        15
+      ],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/class_losses.py",
+      "function": "get_device",
+      "line": 19,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch.py::test_legacy_device_helpers_follow_reported_availability"
+      ],
+      "notes": "Reported CUDA availability selects the expected torch.device. Both selection branches tested with mocked availability; no CUDA allocation or execution claimed.",
+      "coverage": {
+        "covered_lines": 0,
+        "num_statements": 3,
+        "percent_covered": 0.0,
+        "percent_covered_display": "0",
+        "missing_lines": 3,
+        "excluded_lines": 0,
+        "percent_statements_covered": 0.0,
+        "percent_statements_covered_display": "0",
+        "num_branches": 0,
+        "num_partial_branches": 0,
+        "covered_branches": 0,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [
+        25,
+        26,
+        27
+      ],
+      "reviewed": true,
+      "coverage_scope": "Coverage numbers below describe the earlier 158-test scoped run. Supplemental execution passes in audit-torch-helpers.xml; final all-module coverage is generated separately by the parent audit."
+    },
+    {
+      "file": "mlguess/torch/class_losses.py",
+      "function": "relu_evidence",
+      "line": 30,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_scientific_regression.py",
+        "mlguess/tests/test_modern_core.py",
+        "mlguess/tests/test_audit_torch.py"
+      ],
+      "notes": "Dirichlet objectives checked against analytical identities and torch.distributions KL. Array/list/tensor class weights and explicit dtype/device handling tested; original objective equations preserved.",
+      "coverage": {
+        "covered_lines": 1,
+        "num_statements": 1,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 0,
+        "num_partial_branches": 0,
+        "covered_branches": 0,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/class_losses.py",
+      "function": "exp_evidence",
+      "line": 42,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch.py::test_alternative_evidence_transforms_are_finite_and_match_reference"
+      ],
+      "notes": "Extreme inputs remain finite; values agree with independent NumPy exp(clip(x,-10,10)) reference.",
+      "coverage": {
+        "covered_lines": 0,
+        "num_statements": 1,
+        "percent_covered": 0.0,
+        "percent_covered_display": "0",
+        "missing_lines": 1,
+        "excluded_lines": 0,
+        "percent_statements_covered": 0.0,
+        "percent_statements_covered_display": "0",
+        "num_branches": 0,
+        "num_partial_branches": 0,
+        "covered_branches": 0,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [
+        51
+      ],
+      "reviewed": true,
+      "coverage_scope": "Coverage numbers below describe the earlier 158-test scoped run. Supplemental execution passes in audit-torch-helpers.xml; final all-module coverage is generated separately by the parent audit."
+    },
+    {
+      "file": "mlguess/torch/class_losses.py",
+      "function": "softplus_evidence",
+      "line": 54,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch.py::test_alternative_evidence_transforms_are_finite_and_match_reference"
+      ],
+      "notes": "Extreme inputs remain finite; float64 results agree with independent NumPy logaddexp(0,x) reference.",
+      "coverage": {
+        "covered_lines": 0,
+        "num_statements": 1,
+        "percent_covered": 0.0,
+        "percent_covered_display": "0",
+        "missing_lines": 1,
+        "excluded_lines": 0,
+        "percent_statements_covered": 0.0,
+        "percent_statements_covered_display": "0",
+        "num_branches": 0,
+        "num_partial_branches": 0,
+        "covered_branches": 0,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [
+        63
+      ],
+      "reviewed": true,
+      "coverage_scope": "Coverage numbers below describe the earlier 158-test scoped run. Supplemental execution passes in audit-torch-helpers.xml; final all-module coverage is generated separately by the parent audit."
+    },
+    {
+      "file": "mlguess/torch/class_losses.py",
+      "function": "kl_divergence",
+      "line": 66,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_scientific_regression.py",
+        "mlguess/tests/test_modern_core.py",
+        "mlguess/tests/test_audit_torch.py"
+      ],
+      "notes": "Dirichlet objectives checked against analytical identities and torch.distributions KL. Array/list/tensor class weights and explicit dtype/device handling tested; original objective equations preserved.",
+      "coverage": {
+        "covered_lines": 13,
+        "num_statements": 13,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 6,
+        "num_partial_branches": 0,
+        "covered_branches": 6,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/class_losses.py",
+      "function": "loglikelihood_loss",
+      "line": 101,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_scientific_regression.py",
+        "mlguess/tests/test_modern_core.py",
+        "mlguess/tests/test_audit_torch.py"
+      ],
+      "notes": "Dirichlet objectives checked against analytical identities and torch.distributions KL. Array/list/tensor class weights and explicit dtype/device handling tested; original objective equations preserved.",
+      "coverage": {
+        "covered_lines": 8,
+        "num_statements": 9,
+        "percent_covered": 81.81818181818181,
+        "percent_covered_display": "82",
+        "missing_lines": 1,
+        "excluded_lines": 0,
+        "percent_statements_covered": 88.88888888888889,
+        "percent_statements_covered_display": "89",
+        "num_branches": 2,
+        "num_partial_branches": 1,
+        "covered_branches": 1,
+        "missing_branches": 1,
+        "percent_branches_covered": 50.0,
+        "percent_branches_covered_display": "50"
+      },
+      "unexecuted_lines": [
+        113
+      ],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/class_losses.py",
+      "function": "mse_loss",
+      "line": 125,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_scientific_regression.py",
+        "mlguess/tests/test_modern_core.py",
+        "mlguess/tests/test_audit_torch.py"
+      ],
+      "notes": "Dirichlet objectives checked against analytical identities and torch.distributions KL. Array/list/tensor class weights and explicit dtype/device handling tested; original objective equations preserved.",
+      "coverage": {
+        "covered_lines": 8,
+        "num_statements": 9,
+        "percent_covered": 81.81818181818181,
+        "percent_covered_display": "82",
+        "missing_lines": 1,
+        "excluded_lines": 0,
+        "percent_statements_covered": 88.88888888888889,
+        "percent_statements_covered_display": "89",
+        "num_branches": 2,
+        "num_partial_branches": 1,
+        "covered_branches": 1,
+        "missing_branches": 1,
+        "percent_branches_covered": 50.0,
+        "percent_branches_covered_display": "50"
+      },
+      "unexecuted_lines": [
+        140
+      ],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/class_losses.py",
+      "function": "edl_loss",
+      "line": 152,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_scientific_regression.py",
+        "mlguess/tests/test_modern_core.py",
+        "mlguess/tests/test_audit_torch.py"
+      ],
+      "notes": "Dirichlet objectives checked against analytical identities and torch.distributions KL. Array/list/tensor class weights and explicit dtype/device handling tested; original objective equations preserved.",
+      "coverage": {
+        "covered_lines": 12,
+        "num_statements": 13,
+        "percent_covered": 88.23529411764706,
+        "percent_covered_display": "88",
+        "missing_lines": 1,
+        "excluded_lines": 0,
+        "percent_statements_covered": 92.3076923076923,
+        "percent_statements_covered_display": "92",
+        "num_branches": 4,
+        "num_partial_branches": 1,
+        "covered_branches": 3,
+        "missing_branches": 1,
+        "percent_branches_covered": 75.0,
+        "percent_branches_covered_display": "75"
+      },
+      "unexecuted_lines": [
+        169
+      ],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/class_losses.py",
+      "function": "edl_mse_loss",
+      "line": 186,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_scientific_regression.py::test_classification_mse_equals_squared_bias_plus_dirichlet_variance",
+        "mlguess/tests/test_scientific_regression.py::test_zero_evidence_classification_objectives"
+      ],
+      "notes": "Corrects previously mismatched argument forwarding; weighted MSE explicitly unsupported instead of silently inventing a weighted objective. Squared-bias-plus-Dirichlet-variance identity tested.",
+      "coverage": {
+        "covered_lines": 7,
+        "num_statements": 8,
+        "percent_covered": 83.33333333333333,
+        "percent_covered_display": "83",
+        "missing_lines": 1,
+        "excluded_lines": 0,
+        "percent_statements_covered": 87.5,
+        "percent_statements_covered_display": "88",
+        "num_branches": 4,
+        "num_partial_branches": 1,
+        "covered_branches": 3,
+        "missing_branches": 1,
+        "percent_branches_covered": 75.0,
+        "percent_branches_covered_display": "75"
+      },
+      "unexecuted_lines": [
+        204
+      ],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/class_losses.py",
+      "function": "edl_log_loss",
+      "line": 213,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_scientific_regression.py",
+        "mlguess/tests/test_modern_core.py",
+        "mlguess/tests/test_audit_torch.py"
+      ],
+      "notes": "Dirichlet objectives checked against analytical identities and torch.distributions KL. Array/list/tensor class weights and explicit dtype/device handling tested; original objective equations preserved.",
+      "coverage": {
+        "covered_lines": 6,
+        "num_statements": 6,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 2,
+        "num_partial_branches": 0,
+        "covered_branches": 2,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/class_losses.py",
+      "function": "edl_digamma_loss",
+      "line": 240,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_scientific_regression.py",
+        "mlguess/tests/test_modern_core.py",
+        "mlguess/tests/test_audit_torch.py"
+      ],
+      "notes": "Dirichlet objectives checked against analytical identities and torch.distributions KL. Array/list/tensor class weights and explicit dtype/device handling tested; original objective equations preserved.",
+      "coverage": {
+        "covered_lines": 6,
+        "num_statements": 6,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 2,
+        "num_partial_branches": 0,
+        "covered_branches": 2,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/class_losses.py",
+      "function": "EDLLoss.__init__",
+      "line": 271,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_scientific_regression.py",
+        "mlguess/tests/test_modern_core.py",
+        "mlguess/tests/test_audit_torch.py"
+      ],
+      "notes": "Dirichlet objectives checked against analytical identities and torch.distributions KL. Array/list/tensor class weights and explicit dtype/device handling tested; original objective equations preserved.",
+      "coverage": {
+        "covered_lines": 5,
+        "num_statements": 5,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 0,
+        "num_partial_branches": 0,
+        "covered_branches": 0,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/class_losses.py",
+      "function": "EDLLoss.forward",
+      "line": 278,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_scientific_regression.py",
+        "mlguess/tests/test_modern_core.py",
+        "mlguess/tests/test_audit_torch.py"
+      ],
+      "notes": "Dirichlet objectives checked against analytical identities and torch.distributions KL. Array/list/tensor class weights and explicit dtype/device handling tested; original objective equations preserved.",
+      "coverage": {
+        "covered_lines": 13,
+        "num_statements": 13,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 4,
+        "num_partial_branches": 0,
+        "covered_branches": 4,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/class_losses.py",
+      "function": "EDLDigammaLoss.__init__",
+      "line": 297,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_scientific_regression.py",
+        "mlguess/tests/test_modern_core.py",
+        "mlguess/tests/test_audit_torch.py"
+      ],
+      "notes": "Dirichlet objectives checked against analytical identities and torch.distributions KL. Array/list/tensor class weights and explicit dtype/device handling tested; original objective equations preserved.",
+      "coverage": {
+        "covered_lines": 4,
+        "num_statements": 4,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 0,
+        "num_partial_branches": 0,
+        "covered_branches": 0,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/class_losses.py",
+      "function": "EDLDigammaLoss.forward",
+      "line": 303,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_scientific_regression.py",
+        "mlguess/tests/test_modern_core.py",
+        "mlguess/tests/test_audit_torch.py"
+      ],
+      "notes": "Dirichlet objectives checked against analytical identities and torch.distributions KL. Array/list/tensor class weights and explicit dtype/device handling tested; original objective equations preserved.",
+      "coverage": {
+        "covered_lines": 7,
+        "num_statements": 7,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 2,
+        "num_partial_branches": 0,
+        "covered_branches": 2,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/distributed.py",
+      "function": "distributed_model_wrapper",
+      "line": 11,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_distributed_cpu_noop_and_clear_fsdp_error",
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_distributed_cuda_device_id_routing_mocked",
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_distributed_actual_single_process_cpu"
+      ],
+      "notes": "Real CPU no-op and pre-import FSDP rejection; DDP device IDs tested with mocked constructor. Actual single-process CPU Gloo test attempted but skipped after host socket permission denial.",
+      "unexecuted_branches": "Real CPU Gloo initialization blocked by sandbox. CUDA DDP and FSDP paths are not runtime-validated.",
+      "coverage": {
+        "covered_lines": 11,
+        "num_statements": 32,
+        "percent_covered": 40.90909090909091,
+        "percent_covered_display": "41",
+        "missing_lines": 21,
+        "excluded_lines": 0,
+        "percent_statements_covered": 34.375,
+        "percent_statements_covered_display": "34",
+        "num_branches": 12,
+        "num_partial_branches": 1,
+        "covered_branches": 7,
+        "missing_branches": 5,
+        "percent_branches_covered": 58.333333333333336,
+        "percent_branches_covered_display": "58"
+      },
+      "unexecuted_lines": [
+        32,
+        33,
+        34,
+        37,
+        39,
+        45,
+        47,
+        49,
+        50,
+        54,
+        56,
+        60,
+        62,
+        66,
+        76,
+        78,
+        80,
+        84,
+        90,
+        96,
+        103
+      ],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/layers.py",
+      "function": "LinearNormalGamma.__init__",
+      "line": 23,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_scientific_regression.py::test_linear_normal_gamma_preserves_interleaved_parameter_order",
+        "mlguess/tests/test_scientific_regression.py::test_evidence_activation_is_stable_for_large_positive_input"
+      ],
+      "notes": "NIG output interleaving and positive-parameter transforms verified analytically. Stable softplus preserves the original real-valued transform while avoiding exponential overflow.",
+      "coverage": {
+        "covered_lines": 4,
+        "num_statements": 4,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 2,
+        "num_partial_branches": 0,
+        "covered_branches": 2,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/layers.py",
+      "function": "LinearNormalGamma.evidence",
+      "line": 36,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_scientific_regression.py::test_linear_normal_gamma_preserves_interleaved_parameter_order",
+        "mlguess/tests/test_scientific_regression.py::test_evidence_activation_is_stable_for_large_positive_input"
+      ],
+      "notes": "NIG output interleaving and positive-parameter transforms verified analytically. Stable softplus preserves the original real-valued transform while avoiding exponential overflow.",
+      "coverage": {
+        "covered_lines": 1,
+        "num_statements": 1,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 0,
+        "num_partial_branches": 0,
+        "covered_branches": 0,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/layers.py",
+      "function": "LinearNormalGamma.forward",
+      "line": 47,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_scientific_regression.py::test_linear_normal_gamma_preserves_interleaved_parameter_order",
+        "mlguess/tests/test_scientific_regression.py::test_evidence_activation_is_stable_for_large_positive_input"
+      ],
+      "notes": "NIG output interleaving and positive-parameter transforms verified analytically. Stable softplus preserves the original real-valued transform while avoiding exponential overflow.",
+      "coverage": {
+        "covered_lines": 3,
+        "num_statements": 3,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 0,
+        "num_partial_branches": 0,
+        "covered_branches": 0,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/mc_dropout.py",
+      "function": "enable_dropout",
+      "line": 18,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_torch_lotv.py",
+        "mlguess/tests/test_modern_core.py",
+        "mlguess/tests/test_audit_torch.py"
+      ],
+      "notes": "Analytical finite-mixture tests cover Gaussian, NIG, categorical and Dirichlet outputs, population variance, within/between uncertainty, entropy/MI, affine scaling and invalid input rejection. Dropout inference restores module modes and freezes batch-normalization statistics.",
+      "coverage": {
+        "covered_lines": 3,
+        "num_statements": 3,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 4,
+        "num_partial_branches": 0,
+        "covered_branches": 4,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/mc_dropout.py",
+      "function": "inference_context",
+      "line": 26,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_torch_lotv.py",
+        "mlguess/tests/test_modern_core.py",
+        "mlguess/tests/test_audit_torch.py"
+      ],
+      "notes": "Analytical finite-mixture tests cover Gaussian, NIG, categorical and Dirichlet outputs, population variance, within/between uncertainty, entropy/MI, affine scaling and invalid input rejection. Dropout inference restores module modes and freezes batch-normalization statistics.",
+      "coverage": {
+        "covered_lines": 9,
+        "num_statements": 9,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 4,
+        "num_partial_branches": 0,
+        "covered_branches": 4,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/mc_dropout.py",
+      "function": "as_model_input",
+      "line": 40,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_modern_core.py",
+        "mlguess/tests/test_audit_torch.py::test_parameterless_input_conversion_follows_floating_buffer"
+      ],
+      "notes": "NumPy float64/noncontiguous inputs follow model dtype/device; parameterless models use their first floating buffer. Trainers may explicitly override compute device for offloaded FSDP models.",
+      "coverage": {
+        "covered_lines": 8,
+        "num_statements": 8,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 6,
+        "num_partial_branches": 0,
+        "covered_branches": 6,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/mc_dropout.py",
+      "function": "_matrix",
+      "line": 52,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_torch_lotv.py",
+        "mlguess/tests/test_modern_core.py",
+        "mlguess/tests/test_audit_torch.py"
+      ],
+      "notes": "Analytical finite-mixture tests cover Gaussian, NIG, categorical and Dirichlet outputs, population variance, within/between uncertainty, entropy/MI, affine scaling and invalid input rejection. Dropout inference restores module modes and freezes batch-normalization statistics.",
+      "coverage": {
+        "covered_lines": 6,
+        "num_statements": 9,
+        "percent_covered": 64.70588235294117,
+        "percent_covered_display": "65",
+        "missing_lines": 3,
+        "excluded_lines": 0,
+        "percent_statements_covered": 66.66666666666667,
+        "percent_statements_covered_display": "67",
+        "num_branches": 8,
+        "num_partial_branches": 3,
+        "covered_branches": 5,
+        "missing_branches": 3,
+        "percent_branches_covered": 62.5,
+        "percent_branches_covered_display": "62"
+      },
+      "unexecuted_lines": [
+        54,
+        56,
+        58
+      ],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/mc_dropout.py",
+      "function": "_parameters",
+      "line": 64,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_torch_lotv.py",
+        "mlguess/tests/test_modern_core.py",
+        "mlguess/tests/test_audit_torch.py"
+      ],
+      "notes": "Analytical finite-mixture tests cover Gaussian, NIG, categorical and Dirichlet outputs, population variance, within/between uncertainty, entropy/MI, affine scaling and invalid input rejection. Dropout inference restores module modes and freezes batch-normalization statistics.",
+      "coverage": {
+        "covered_lines": 8,
+        "num_statements": 11,
+        "percent_covered": 68.42105263157895,
+        "percent_covered_display": "68",
+        "missing_lines": 3,
+        "excluded_lines": 0,
+        "percent_statements_covered": 72.72727272727273,
+        "percent_statements_covered_display": "73",
+        "num_branches": 8,
+        "num_partial_branches": 3,
+        "covered_branches": 5,
+        "missing_branches": 3,
+        "percent_branches_covered": 62.5,
+        "percent_branches_covered_display": "62"
+      },
+      "unexecuted_lines": [
+        67,
+        72,
+        76
+      ],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/mc_dropout.py",
+      "function": "_entropy",
+      "line": 80,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_torch_lotv.py",
+        "mlguess/tests/test_modern_core.py",
+        "mlguess/tests/test_audit_torch.py"
+      ],
+      "notes": "Analytical finite-mixture tests cover Gaussian, NIG, categorical and Dirichlet outputs, population variance, within/between uncertainty, entropy/MI, affine scaling and invalid input rejection. Dropout inference restores module modes and freezes batch-normalization statistics.",
+      "coverage": {
+        "covered_lines": 2,
+        "num_statements": 2,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 0,
+        "num_partial_branches": 0,
+        "covered_branches": 0,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/mc_dropout.py",
+      "function": "_output_moments",
+      "line": 86,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_torch_lotv.py",
+        "mlguess/tests/test_modern_core.py",
+        "mlguess/tests/test_audit_torch.py"
+      ],
+      "notes": "Analytical finite-mixture tests cover Gaussian, NIG, categorical and Dirichlet outputs, population variance, within/between uncertainty, entropy/MI, affine scaling and invalid input rejection. Dropout inference restores module modes and freezes batch-normalization statistics.",
+      "coverage": {
+        "covered_lines": 35,
+        "num_statements": 36,
+        "percent_covered": 96.55172413793103,
+        "percent_covered_display": "97",
+        "missing_lines": 1,
+        "excluded_lines": 0,
+        "percent_statements_covered": 97.22222222222223,
+        "percent_statements_covered_display": "97",
+        "num_branches": 22,
+        "num_partial_branches": 1,
+        "covered_branches": 21,
+        "missing_branches": 1,
+        "percent_branches_covered": 95.45454545454545,
+        "percent_branches_covered_display": "95"
+      },
+      "unexecuted_lines": [
+        110
+      ],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/mc_dropout.py",
+      "function": "_scale_moments",
+      "line": 133,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_torch_lotv.py",
+        "mlguess/tests/test_modern_core.py",
+        "mlguess/tests/test_audit_torch.py"
+      ],
+      "notes": "Analytical finite-mixture tests cover Gaussian, NIG, categorical and Dirichlet outputs, population variance, within/between uncertainty, entropy/MI, affine scaling and invalid input rejection. Dropout inference restores module modes and freezes batch-normalization statistics.",
+      "coverage": {
+        "covered_lines": 7,
+        "num_statements": 7,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 2,
+        "num_partial_branches": 0,
+        "covered_branches": 2,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/mc_dropout.py",
+      "function": "monte_carlo_dropout",
+      "line": 148,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_torch_lotv.py",
+        "mlguess/tests/test_modern_core.py",
+        "mlguess/tests/test_audit_torch.py"
+      ],
+      "notes": "Analytical finite-mixture tests cover Gaussian, NIG, categorical and Dirichlet outputs, population variance, within/between uncertainty, entropy/MI, affine scaling and invalid input rejection. Dropout inference restores module modes and freezes batch-normalization statistics.",
+      "coverage": {
+        "covered_lines": 56,
+        "num_statements": 67,
+        "percent_covered": 79.4392523364486,
+        "percent_covered_display": "79",
+        "missing_lines": 11,
+        "excluded_lines": 0,
+        "percent_statements_covered": 83.58208955223881,
+        "percent_statements_covered_display": "84",
+        "num_branches": 40,
+        "num_partial_branches": 11,
+        "covered_branches": 29,
+        "missing_branches": 11,
+        "percent_branches_covered": 72.5,
+        "percent_branches_covered_display": "72"
+      },
+      "unexecuted_lines": [
+        192,
+        196,
+        198,
+        201,
+        207,
+        218,
+        225,
+        228,
+        230,
+        232,
+        259
+      ],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/mixed_precision.py",
+      "function": "parse_dtype",
+      "line": 4,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_parse_dtype",
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_parse_dtype_invalid"
+      ],
+      "notes": "Case-insensitive floating, integer and bool aliases and invalid-string failure. Existing dtype mapping preserved.",
+      "coverage": {
+        "covered_lines": 5,
+        "num_statements": 5,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 2,
+        "num_partial_branches": 0,
+        "covered_branches": 2,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/models.py",
+      "function": "get_device",
+      "line": 16,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch.py::test_legacy_device_helpers_follow_reported_availability"
+      ],
+      "notes": "Reported CUDA availability selects the expected torch.device. Both selection branches tested with mocked availability; explicit CPU caller policy is unchanged.",
+      "coverage": {
+        "covered_lines": 0,
+        "num_statements": 3,
+        "percent_covered": 0.0,
+        "percent_covered_display": "0",
+        "missing_lines": 3,
+        "excluded_lines": 0,
+        "percent_statements_covered": 0.0,
+        "percent_statements_covered_display": "0",
+        "num_branches": 0,
+        "num_partial_branches": 0,
+        "covered_branches": 0,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [
+        25,
+        26,
+        27
+      ],
+      "reviewed": true,
+      "coverage_scope": "Coverage numbers below describe the earlier 158-test scoped run. Supplemental execution passes in audit-torch-helpers.xml; final all-module coverage is generated separately by the parent audit."
+    },
+    {
+      "file": "mlguess/torch/models.py",
+      "function": "seed_everything",
+      "line": 30,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch.py::test_seed_helper_reproduces_python_numpy_and_torch_rng"
+      ],
+      "notes": "Python, NumPy and Torch CPU random sequences reproduce after reseeding. CUDA branch unexecuted. PYTHONHASHSEED assignment affects future interpreters, not the current interpreter hash secret.",
+      "coverage": {
+        "covered_lines": 7,
+        "num_statements": 8,
+        "percent_covered": 80.0,
+        "percent_covered_display": "80",
+        "missing_lines": 1,
+        "excluded_lines": 0,
+        "percent_statements_covered": 87.5,
+        "percent_statements_covered_display": "88",
+        "num_branches": 2,
+        "num_partial_branches": 1,
+        "covered_branches": 1,
+        "missing_branches": 1,
+        "percent_branches_covered": 50.0,
+        "percent_branches_covered_display": "50"
+      },
+      "unexecuted_lines": [
+        49
+      ],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/models.py",
+      "function": "init_weights",
+      "line": 54,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch.py::test_spectral_weight_initializer_changes_trainable_parameter_after_forward",
+        "mlguess/tests/test_modern_core.py::test_per_layer_dropout_and_previously_broken_initialization_flag"
+      ],
+      "notes": "Spectral-normalized layers initialize their trainable weight_orig, including after a forward pass. DNN weight_init=True uses explicit Kaiming initialization; other public initialization choices/default gains preserved.",
+      "coverage": {
+        "covered_lines": 3,
+        "num_statements": 4,
+        "percent_covered": 66.66666666666667,
+        "percent_covered_display": "67",
+        "missing_lines": 1,
+        "excluded_lines": 0,
+        "percent_statements_covered": 75.0,
+        "percent_statements_covered_display": "75",
+        "num_branches": 2,
+        "num_partial_branches": 1,
+        "covered_branches": 1,
+        "missing_branches": 1,
+        "percent_branches_covered": 50.0,
+        "percent_branches_covered_display": "50"
+      },
+      "unexecuted_lines": [
+        105
+      ],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/models.py",
+      "function": "init_weights.init_func",
+      "line": 74,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch.py::test_spectral_weight_initializer_changes_trainable_parameter_after_forward"
+      ],
+      "notes": "Nested initializer tested through init_weights; same trainable spectral-weight requirement. Not all supported initializer branches executed.",
+      "coverage": {
+        "covered_lines": 11,
+        "num_statements": 17,
+        "percent_covered": 61.29032258064516,
+        "percent_covered_display": "61",
+        "missing_lines": 6,
+        "excluded_lines": 0,
+        "percent_statements_covered": 64.70588235294117,
+        "percent_statements_covered_display": "65",
+        "num_branches": 14,
+        "num_partial_branches": 4,
+        "covered_branches": 8,
+        "missing_branches": 6,
+        "percent_branches_covered": 57.142857142857146,
+        "percent_branches_covered_display": "57"
+      },
+      "unexecuted_lines": [
+        90,
+        93,
+        94,
+        96,
+        101,
+        102
+      ],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/models.py",
+      "function": "DNN.__init__",
+      "line": 123,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_modern_core.py",
+        "mlguess/tests/test_torch_model.py",
+        "mlguess/tests/test_torch_lotv.py",
+        "mlguess/tests/test_audit_torch.py"
+      ],
+      "notes": "Reviewed architecture construction, safe state loading, input dtype/device, inference-mode restoration and model-specific uncertainty paths. Ordinary CPU inference and train/save/load integration tested.",
+      "coverage": {
+        "covered_lines": 31,
+        "num_statements": 33,
+        "percent_covered": 92.98245614035088,
+        "percent_covered_display": "93",
+        "missing_lines": 2,
+        "excluded_lines": 0,
+        "percent_statements_covered": 93.93939393939394,
+        "percent_statements_covered_display": "94",
+        "num_branches": 24,
+        "num_partial_branches": 2,
+        "covered_branches": 22,
+        "missing_branches": 2,
+        "percent_branches_covered": 91.66666666666667,
+        "percent_branches_covered_display": "92"
+      },
+      "unexecuted_lines": [
+        142,
+        171
+      ],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/models.py",
+      "function": "DNN.block",
+      "line": 177,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_modern_core.py",
+        "mlguess/tests/test_torch_model.py",
+        "mlguess/tests/test_torch_lotv.py",
+        "mlguess/tests/test_audit_torch.py"
+      ],
+      "notes": "Reviewed architecture construction, safe state loading, input dtype/device, inference-mode restoration and model-specific uncertainty paths. Ordinary CPU inference and train/save/load integration tested.",
+      "coverage": {
+        "covered_lines": 7,
+        "num_statements": 7,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 4,
+        "num_partial_branches": 0,
+        "covered_branches": 4,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/models.py",
+      "function": "DNN.forward",
+      "line": 197,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_modern_core.py",
+        "mlguess/tests/test_torch_model.py",
+        "mlguess/tests/test_torch_lotv.py",
+        "mlguess/tests/test_audit_torch.py"
+      ],
+      "notes": "Reviewed architecture construction, safe state loading, input dtype/device, inference-mode restoration and model-specific uncertainty paths. Ordinary CPU inference and train/save/load integration tested.",
+      "coverage": {
+        "covered_lines": 2,
+        "num_statements": 2,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 0,
+        "num_partial_branches": 0,
+        "covered_branches": 0,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/models.py",
+      "function": "DNN.load_weights",
+      "line": 209,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_modern_core.py",
+        "mlguess/tests/test_torch_model.py",
+        "mlguess/tests/test_torch_lotv.py",
+        "mlguess/tests/test_audit_torch.py"
+      ],
+      "notes": "Reviewed architecture construction, safe state loading, input dtype/device, inference-mode restoration and model-specific uncertainty paths. Ordinary CPU inference and train/save/load integration tested.",
+      "coverage": {
+        "covered_lines": 3,
+        "num_statements": 3,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 0,
+        "num_partial_branches": 0,
+        "covered_branches": 0,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/models.py",
+      "function": "DNN.predict",
+      "line": 229,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_modern_core.py",
+        "mlguess/tests/test_torch_model.py",
+        "mlguess/tests/test_torch_lotv.py",
+        "mlguess/tests/test_audit_torch.py"
+      ],
+      "notes": "Reviewed architecture construction, safe state loading, input dtype/device, inference-mode restoration and model-specific uncertainty paths. Ordinary CPU inference and train/save/load integration tested.",
+      "coverage": {
+        "covered_lines": 6,
+        "num_statements": 7,
+        "percent_covered": 81.81818181818181,
+        "percent_covered_display": "82",
+        "missing_lines": 1,
+        "excluded_lines": 0,
+        "percent_statements_covered": 85.71428571428571,
+        "percent_statements_covered_display": "86",
+        "num_branches": 4,
+        "num_partial_branches": 1,
+        "covered_branches": 3,
+        "missing_branches": 1,
+        "percent_branches_covered": 75.0,
+        "percent_branches_covered_display": "75"
+      },
+      "unexecuted_lines": [
+        252
+      ],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/models.py",
+      "function": "DNN.predict_uncertainty",
+      "line": 256,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_torch_lotv.py",
+        "mlguess/tests/test_scientific_regression.py"
+      ],
+      "notes": "Accepts legacy parameter generators and concatenated blocks; rejects invalid/nonfinite NIG moments; exact affine inverse slopes transform variance once. No training_var approximation for nonlinear scalers.",
+      "coverage": {
+        "covered_lines": 8,
+        "num_statements": 8,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 4,
+        "num_partial_branches": 0,
+        "covered_branches": 4,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/models.py",
+      "function": "DNN.predict_dropout",
+      "line": 285,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_modern_core.py",
+        "mlguess/tests/test_torch_model.py",
+        "mlguess/tests/test_torch_lotv.py",
+        "mlguess/tests/test_audit_torch.py"
+      ],
+      "notes": "Reviewed architecture construction, safe state loading, input dtype/device, inference-mode restoration and model-specific uncertainty paths. Ordinary CPU inference and train/save/load integration tested.",
+      "coverage": {
+        "covered_lines": 8,
+        "num_statements": 9,
+        "percent_covered": 86.66666666666667,
+        "percent_covered_display": "87",
+        "missing_lines": 1,
+        "excluded_lines": 0,
+        "percent_statements_covered": 88.88888888888889,
+        "percent_statements_covered_display": "89",
+        "num_branches": 6,
+        "num_partial_branches": 1,
+        "covered_branches": 5,
+        "missing_branches": 1,
+        "percent_branches_covered": 83.33333333333333,
+        "percent_branches_covered_display": "83"
+      },
+      "unexecuted_lines": [
+        304
+      ],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/models.py",
+      "function": "DNN.from_config",
+      "line": 317,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_modern_core.py",
+        "mlguess/tests/test_torch_model.py",
+        "mlguess/tests/test_torch_lotv.py",
+        "mlguess/tests/test_audit_torch.py"
+      ],
+      "notes": "Reviewed architecture construction, safe state loading, input dtype/device, inference-mode restoration and model-specific uncertainty paths. Ordinary CPU inference and train/save/load integration tested.",
+      "coverage": {
+        "covered_lines": 3,
+        "num_statements": 3,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 0,
+        "num_partial_branches": 0,
+        "covered_branches": 0,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/models.py",
+      "function": "CategoricalDNN.__init__",
+      "line": 338,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_modern_core.py",
+        "mlguess/tests/test_torch_model.py",
+        "mlguess/tests/test_torch_lotv.py",
+        "mlguess/tests/test_audit_torch.py"
+      ],
+      "notes": "Reviewed architecture construction, safe state loading, input dtype/device, inference-mode restoration and model-specific uncertainty paths. Ordinary CPU inference and train/save/load integration tested.",
+      "coverage": {
+        "covered_lines": 2,
+        "num_statements": 2,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 0,
+        "num_partial_branches": 0,
+        "covered_branches": 0,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/models.py",
+      "function": "CategoricalDNN.calc_uncertainty",
+      "line": 342,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_modern_core.py",
+        "mlguess/tests/test_torch_model.py",
+        "mlguess/tests/test_torch_lotv.py",
+        "mlguess/tests/test_audit_torch.py"
+      ],
+      "notes": "Reviewed architecture construction, safe state loading, input dtype/device, inference-mode restoration and model-specific uncertainty paths. Ordinary CPU inference and train/save/load integration tested.",
+      "coverage": {
+        "covered_lines": 4,
+        "num_statements": 4,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 0,
+        "num_partial_branches": 0,
+        "covered_branches": 0,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/models.py",
+      "function": "CategoricalDNN.predict",
+      "line": 348,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_modern_core.py",
+        "mlguess/tests/test_torch_model.py",
+        "mlguess/tests/test_torch_lotv.py",
+        "mlguess/tests/test_audit_torch.py"
+      ],
+      "notes": "Reviewed architecture construction, safe state loading, input dtype/device, inference-mode restoration and model-specific uncertainty paths. Ordinary CPU inference and train/save/load integration tested.",
+      "coverage": {
+        "covered_lines": 5,
+        "num_statements": 5,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 2,
+        "num_partial_branches": 0,
+        "covered_branches": 2,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/models.py",
+      "function": "CategoricalDNN.predict_uncertainty",
+      "line": 356,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch.py::test_categorical_uncertainty_alias_accepts_features_and_restores_mode"
+      ],
+      "notes": "Fixed-weight model with differing feature/class widths verifies alias accepts features, reproduces predict(), restores training mode and obeys categorical variance identity.",
+      "coverage": {
+        "covered_lines": 0,
+        "num_statements": 1,
+        "percent_covered": 0.0,
+        "percent_covered_display": "0",
+        "missing_lines": 1,
+        "excluded_lines": 0,
+        "percent_statements_covered": 0.0,
+        "percent_statements_covered_display": "0",
+        "num_branches": 0,
+        "num_partial_branches": 0,
+        "covered_branches": 0,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [
+        357
+      ],
+      "reviewed": true,
+      "coverage_scope": "Coverage numbers below describe the earlier 158-test scoped run. Supplemental execution passes in audit-torch-helpers.xml; final all-module coverage is generated separately by the parent audit."
+    },
+    {
+      "file": "mlguess/torch/regression_losses.py",
+      "function": "EvidentialRegressionLoss.__init__",
+      "line": 18,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_scientific_regression.py",
+        "mlguess/tests/test_audit_torch.py"
+      ],
+      "notes": "NIG likelihood checked independently against StudentT and NumPy/SciPy; regularizer and detached modified-MSE coefficients verified. Existing objective equations and stabilization constants preserved.",
+      "coverage": {
+        "covered_lines": 1,
+        "num_statements": 1,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 0,
+        "num_partial_branches": 0,
+        "covered_branches": 0,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/regression_losses.py",
+      "function": "EvidentialRegressionLoss.normal_inverse_gamma_nll",
+      "line": 21,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_scientific_regression.py",
+        "mlguess/tests/test_audit_torch.py"
+      ],
+      "notes": "NIG likelihood checked independently against StudentT and NumPy/SciPy; regularizer and detached modified-MSE coefficients verified. Existing objective equations and stabilization constants preserved.",
+      "coverage": {
+        "covered_lines": 3,
+        "num_statements": 3,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 0,
+        "num_partial_branches": 0,
+        "covered_branches": 0,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/regression_losses.py",
+      "function": "EvidentialRegressionLoss.normal_inverse_gamma_reg",
+      "line": 46,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_scientific_regression.py",
+        "mlguess/tests/test_audit_torch.py"
+      ],
+      "notes": "NIG likelihood checked independently against StudentT and NumPy/SciPy; regularizer and detached modified-MSE coefficients verified. Existing objective equations and stabilization constants preserved.",
+      "coverage": {
+        "covered_lines": 3,
+        "num_statements": 3,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 0,
+        "num_partial_branches": 0,
+        "covered_branches": 0,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/regression_losses.py",
+      "function": "EvidentialRegressionLoss.__call__",
+      "line": 63,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_scientific_regression.py",
+        "mlguess/tests/test_audit_torch.py"
+      ],
+      "notes": "NIG likelihood checked independently against StudentT and NumPy/SciPy; regularizer and detached modified-MSE coefficients verified. Existing objective equations and stabilization constants preserved.",
+      "coverage": {
+        "covered_lines": 3,
+        "num_statements": 3,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 0,
+        "num_partial_branches": 0,
+        "covered_branches": 0,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/regression_losses.py",
+      "function": "modified_mse",
+      "line": 84,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_scientific_regression.py",
+        "mlguess/tests/test_audit_torch.py"
+      ],
+      "notes": "NIG likelihood checked independently against StudentT and NumPy/SciPy; regularizer and detached modified-MSE coefficients verified. Existing objective equations and stabilization constants preserved.",
+      "coverage": {
+        "covered_lines": 5,
+        "num_statements": 8,
+        "percent_covered": 50.0,
+        "percent_covered_display": "50",
+        "missing_lines": 3,
+        "excluded_lines": 0,
+        "percent_statements_covered": 62.5,
+        "percent_statements_covered_display": "62",
+        "num_branches": 4,
+        "num_partial_branches": 1,
+        "covered_branches": 1,
+        "missing_branches": 3,
+        "percent_branches_covered": 25.0,
+        "percent_branches_covered_display": "25"
+      },
+      "unexecuted_lines": [
+        107,
+        108,
+        110
+      ],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/regression_losses.py",
+      "function": "get_mse_coef",
+      "line": 113,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_scientific_regression.py",
+        "mlguess/tests/test_audit_torch.py"
+      ],
+      "notes": "NIG likelihood checked independently against StudentT and NumPy/SciPy; regularizer and detached modified-MSE coefficients verified. Existing objective equations and stabilization constants preserved.",
+      "coverage": {
+        "covered_lines": 6,
+        "num_statements": 6,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 0,
+        "num_partial_branches": 0,
+        "covered_branches": 0,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/regression_losses.py",
+      "function": "check_mse_efficiency_alpha",
+      "line": 139,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_scientific_regression.py",
+        "mlguess/tests/test_audit_torch.py"
+      ],
+      "notes": "NIG likelihood checked independently against StudentT and NumPy/SciPy; regularizer and detached modified-MSE coefficients verified. Existing objective equations and stabilization constants preserved.",
+      "coverage": {
+        "covered_lines": 2,
+        "num_statements": 2,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 0,
+        "num_partial_branches": 0,
+        "covered_branches": 0,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/regression_losses.py",
+      "function": "check_mse_efficiency_nu",
+      "line": 161,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_scientific_regression.py",
+        "mlguess/tests/test_audit_torch.py"
+      ],
+      "notes": "NIG likelihood checked independently against StudentT and NumPy/SciPy; regularizer and detached modified-MSE coefficients verified. Existing objective equations and stabilization constants preserved.",
+      "coverage": {
+        "covered_lines": 3,
+        "num_statements": 3,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 0,
+        "num_partial_branches": 0,
+        "covered_branches": 0,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/regression_losses.py",
+      "function": "EvidentialMarginalLikelihood.__init__",
+      "line": 192,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_scientific_regression.py",
+        "mlguess/tests/test_audit_torch.py"
+      ],
+      "notes": "NIG likelihood checked independently against StudentT and NumPy/SciPy; regularizer and detached modified-MSE coefficients verified. Existing objective equations and stabilization constants preserved.",
+      "coverage": {
+        "covered_lines": 1,
+        "num_statements": 1,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 0,
+        "num_partial_branches": 0,
+        "covered_branches": 0,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/regression_losses.py",
+      "function": "EvidentialMarginalLikelihood.forward",
+      "line": 195,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch.py::test_marginal_likelihood_pi_uses_input_float64_precision",
+        "mlguess/tests/test_scientific_regression.py::test_nig_negative_log_likelihood_matches_student_t"
+      ],
+      "notes": "Only equation-adjacent edit is pi=nu.new_tensor(np.pi), preserving input dtype/device instead of rounding pi to default float32. Independent float64 evaluation of the same stabilized equation passes atol=2e-14. No other term or stabilizer changed.",
+      "coverage": {
+        "covered_lines": 10,
+        "num_statements": 10,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 4,
+        "num_partial_branches": 0,
+        "covered_branches": 4,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/regression_losses.py",
+      "function": "EvidenceRegularizer.__init__",
+      "line": 232,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_scientific_regression.py",
+        "mlguess/tests/test_audit_torch.py"
+      ],
+      "notes": "NIG likelihood checked independently against StudentT and NumPy/SciPy; regularizer and detached modified-MSE coefficients verified. Existing objective equations and stabilization constants preserved.",
+      "coverage": {
+        "covered_lines": 2,
+        "num_statements": 2,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 0,
+        "num_partial_branches": 0,
+        "covered_branches": 0,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/regression_losses.py",
+      "function": "EvidenceRegularizer.forward",
+      "line": 236,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_scientific_regression.py",
+        "mlguess/tests/test_audit_torch.py"
+      ],
+      "notes": "NIG likelihood checked independently against StudentT and NumPy/SciPy; regularizer and detached modified-MSE coefficients verified. Existing objective equations and stabilization constants preserved.",
+      "coverage": {
+        "covered_lines": 6,
+        "num_statements": 6,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 4,
+        "num_partial_branches": 0,
+        "covered_branches": 4,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/regression_losses.py",
+      "function": "LipschitzMSELoss.__init__",
+      "line": 273,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_scientific_regression.py::test_regression_objective_has_finite_gradients"
+      ],
+      "notes": "Existing tol argument is retained and explicitly documented as unused; component functions keep their original fixed stabilizers. Coef and reduction continue to configure the components.",
+      "coverage": {
+        "covered_lines": 6,
+        "num_statements": 6,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 0,
+        "num_partial_branches": 0,
+        "covered_branches": 0,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/regression_losses.py",
+      "function": "LipschitzMSELoss.forward",
+      "line": 281,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_scientific_regression.py::test_regression_objective_has_finite_gradients",
+        "mlguess/tests/test_scientific_regression.py::test_modified_mse_keeps_coefficient_detached"
+      ],
+      "notes": "Combined loss and finite gradients tested. The upstream modified-MSE coefficient depends on the minibatch minimum; gradient accumulation therefore cannot make this particular batch-dependent objective identical to a single larger batch.",
+      "coverage": {
+        "covered_lines": 4,
+        "num_statements": 4,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 0,
+        "num_partial_branches": 0,
+        "covered_branches": 0,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/scheduler.py",
+      "function": "load_scheduler",
+      "line": 13,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_load_scheduler_wrapped_optimizer_and_resume",
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_load_scheduler_disabled_and_invalid"
+      ],
+      "notes": "Lambda, plateau and cosine schedules constructed from wrapper; real optimizer steps and state reload; config is preserved.",
+      "coverage": {
+        "covered_lines": 15,
+        "num_statements": 15,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 10,
+        "num_partial_branches": 0,
+        "covered_branches": 10,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/scheduler.py",
+      "function": "lr_lambda_phase2",
+      "line": 47,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_phase_functions_and_annealing_reference_values"
+      ],
+      "notes": "Reference boundary values and phased dispatch; existing schedule formulas preserved.",
+      "coverage": {
+        "covered_lines": 2,
+        "num_statements": 2,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 0,
+        "num_partial_branches": 0,
+        "covered_branches": 0,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/scheduler.py",
+      "function": "phased_lr_lambda",
+      "line": 65,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_phase_functions_and_annealing_reference_values"
+      ],
+      "notes": "Reference boundary values and phased dispatch; existing schedule formulas preserved.",
+      "coverage": {
+        "covered_lines": 3,
+        "num_statements": 3,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 2,
+        "num_partial_branches": 0,
+        "covered_branches": 2,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/scheduler.py",
+      "function": "lr_lambda_phase1",
+      "line": 86,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_phase_functions_and_annealing_reference_values"
+      ],
+      "notes": "Reference boundary values and phased dispatch; existing schedule formulas preserved.",
+      "coverage": {
+        "covered_lines": 5,
+        "num_statements": 5,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 2,
+        "num_partial_branches": 0,
+        "covered_branches": 2,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/scheduler.py",
+      "function": "CosineAnnealingWarmupRestarts.__init__",
+      "line": 125,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_explicit_cosine_step_matches_incremental_schedule",
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_invalid_cosine_configuration",
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_load_scheduler_wrapped_optimizer_and_resume"
+      ],
+      "notes": "Real CPU optimizer LR values, schedule state reload, explicit/incremental cycle agreement across warmup and integer/fractional cycle multipliers, backward epoch jumps and invalid schedule rejection.",
+      "coverage": {
+        "covered_lines": 18,
+        "num_statements": 18,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 6,
+        "num_partial_branches": 0,
+        "covered_branches": 6,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/scheduler.py",
+      "function": "CosineAnnealingWarmupRestarts.init_lr",
+      "line": 159,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_explicit_cosine_step_matches_incremental_schedule",
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_invalid_cosine_configuration",
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_load_scheduler_wrapped_optimizer_and_resume"
+      ],
+      "notes": "Real CPU optimizer LR values, schedule state reload, explicit/incremental cycle agreement across warmup and integer/fractional cycle multipliers, backward epoch jumps and invalid schedule rejection.",
+      "coverage": {
+        "covered_lines": 5,
+        "num_statements": 5,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 2,
+        "num_partial_branches": 0,
+        "covered_branches": 2,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/scheduler.py",
+      "function": "CosineAnnealingWarmupRestarts.get_lr",
+      "line": 166,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_explicit_cosine_step_matches_incremental_schedule",
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_invalid_cosine_configuration",
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_load_scheduler_wrapped_optimizer_and_resume"
+      ],
+      "notes": "Real CPU optimizer LR values, schedule state reload, explicit/incremental cycle agreement across warmup and integer/fractional cycle multipliers, backward epoch jumps and invalid schedule rejection.",
+      "coverage": {
+        "covered_lines": 4,
+        "num_statements": 5,
+        "percent_covered": 77.77777777777777,
+        "percent_covered_display": "78",
+        "missing_lines": 1,
+        "excluded_lines": 0,
+        "percent_statements_covered": 80.0,
+        "percent_statements_covered_display": "80",
+        "num_branches": 4,
+        "num_partial_branches": 1,
+        "covered_branches": 3,
+        "missing_branches": 1,
+        "percent_branches_covered": 75.0,
+        "percent_branches_covered_display": "75"
+      },
+      "unexecuted_lines": [
+        168
+      ],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/scheduler.py",
+      "function": "CosineAnnealingWarmupRestarts.step",
+      "line": 177,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_explicit_cosine_step_matches_incremental_schedule",
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_invalid_cosine_configuration",
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_load_scheduler_wrapped_optimizer_and_resume"
+      ],
+      "notes": "Real CPU optimizer LR values, schedule state reload, explicit/incremental cycle agreement across warmup and integer/fractional cycle multipliers, backward epoch jumps and invalid schedule rejection.",
+      "coverage": {
+        "covered_lines": 28,
+        "num_statements": 29,
+        "percent_covered": 95.34883720930233,
+        "percent_covered_display": "95",
+        "missing_lines": 1,
+        "excluded_lines": 0,
+        "percent_statements_covered": 96.55172413793103,
+        "percent_statements_covered_display": "97",
+        "num_branches": 14,
+        "num_partial_branches": 1,
+        "covered_branches": 13,
+        "missing_branches": 1,
+        "percent_branches_covered": 92.85714285714286,
+        "percent_branches_covered_display": "93"
+      },
+      "unexecuted_lines": [
+        187
+      ],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/scheduler.py",
+      "function": "annealed_probability",
+      "line": 215,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_phase_functions_and_annealing_reference_values"
+      ],
+      "notes": "Reference boundary values and phased dispatch; existing schedule formulas preserved.",
+      "coverage": {
+        "covered_lines": 4,
+        "num_statements": 4,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 0,
+        "num_partial_branches": 0,
+        "covered_branches": 0,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/trainer_classifier.py",
+      "function": "cleanup",
+      "line": 21,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch.py::test_trainer_cleanup_only_destroys_active_group"
+      ],
+      "notes": "Mocked unavailable/inactive/active distributed states verify only an initialized group is destroyed and repeated cleanup is safe. No real collective execution claimed.",
+      "coverage": {
+        "covered_lines": 0,
+        "num_statements": 2,
+        "percent_covered": 0.0,
+        "percent_covered_display": "0",
+        "missing_lines": 2,
+        "excluded_lines": 0,
+        "percent_statements_covered": 0.0,
+        "percent_statements_covered_display": "0",
+        "num_branches": 2,
+        "num_partial_branches": 0,
+        "covered_branches": 0,
+        "missing_branches": 2,
+        "percent_branches_covered": 0.0,
+        "percent_branches_covered_display": "0"
+      },
+      "unexecuted_lines": [
+        30,
+        31
+      ],
+      "reviewed": true,
+      "coverage_scope": "Coverage numbers below describe the earlier 158-test scoped run. Supplemental execution passes in audit-torch-helpers.xml; final all-module coverage is generated separately by the parent audit."
+    },
+    {
+      "file": "mlguess/torch/trainer_classifier.py",
+      "function": "accum_log",
+      "line": 34,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_modern_trainers.py",
+        "mlguess/tests/test_audit_torch.py",
+        "mlguess/tests/test_applications.py"
+      ],
+      "notes": "CPU train/validate/predict/fit integration tested for ordinary and evidential classifiers, weighted gradient accumulation, dtype conversion, probability metrics, global validation metrics and save/reload. CUDA AMP and real FSDP/DDP collectives remain unexecuted.",
+      "coverage": {
+        "covered_lines": 4,
+        "num_statements": 4,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 2,
+        "num_partial_branches": 0,
+        "covered_branches": 2,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/trainer_classifier.py",
+      "function": "one_hot_embedding",
+      "line": 56,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_modern_trainers.py",
+        "mlguess/tests/test_audit_torch.py",
+        "mlguess/tests/test_applications.py"
+      ],
+      "notes": "CPU train/validate/predict/fit integration tested for ordinary and evidential classifiers, weighted gradient accumulation, dtype conversion, probability metrics, global validation metrics and save/reload. CUDA AMP and real FSDP/DDP collectives remain unexecuted.",
+      "coverage": {
+        "covered_lines": 4,
+        "num_statements": 4,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 2,
+        "num_partial_branches": 0,
+        "covered_branches": 2,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/trainer_classifier.py",
+      "function": "Trainer.__init__",
+      "line": 64,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_modern_trainers.py",
+        "mlguess/tests/test_audit_torch.py",
+        "mlguess/tests/test_applications.py"
+      ],
+      "notes": "CPU train/validate/predict/fit integration tested for ordinary and evidential classifiers, weighted gradient accumulation, dtype conversion, probability metrics, global validation metrics and save/reload. CUDA AMP and real FSDP/DDP collectives remain unexecuted.",
+      "coverage": {
+        "covered_lines": 7,
+        "num_statements": 8,
+        "percent_covered": 80.0,
+        "percent_covered_display": "80",
+        "missing_lines": 1,
+        "excluded_lines": 0,
+        "percent_statements_covered": 87.5,
+        "percent_statements_covered_display": "88",
+        "num_branches": 2,
+        "num_partial_branches": 1,
+        "covered_branches": 1,
+        "missing_branches": 1,
+        "percent_branches_covered": 50.0,
+        "percent_branches_covered_display": "50"
+      },
+      "unexecuted_lines": [
+        79
+      ],
+      "unexecuted_runtime": "CUDA AMP, native accelerator FSDP and actual distributed collectives unavailable. Multi-rank Trainer execution is explicitly unsupported.",
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/trainer_classifier.py",
+      "function": "Trainer._probabilities",
+      "line": 84,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_modern_trainers.py",
+        "mlguess/tests/test_audit_torch.py",
+        "mlguess/tests/test_applications.py"
+      ],
+      "notes": "CPU train/validate/predict/fit integration tested for ordinary and evidential classifiers, weighted gradient accumulation, dtype conversion, probability metrics, global validation metrics and save/reload. CUDA AMP and real FSDP/DDP collectives remain unexecuted.",
+      "coverage": {
+        "covered_lines": 4,
+        "num_statements": 5,
+        "percent_covered": 77.77777777777777,
+        "percent_covered_display": "78",
+        "missing_lines": 1,
+        "excluded_lines": 0,
+        "percent_statements_covered": 80.0,
+        "percent_statements_covered_display": "80",
+        "num_branches": 4,
+        "num_partial_branches": 1,
+        "covered_branches": 3,
+        "missing_branches": 1,
+        "percent_branches_covered": 75.0,
+        "percent_branches_covered_display": "75"
+      },
+      "unexecuted_lines": [
+        88
+      ],
+      "unexecuted_runtime": "CUDA AMP, native accelerator FSDP and actual distributed collectives unavailable. Multi-rank Trainer execution is explicitly unsupported.",
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/trainer_classifier.py",
+      "function": "Trainer.train_one_epoch",
+      "line": 92,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_modern_trainers.py",
+        "mlguess/tests/test_audit_torch.py",
+        "mlguess/tests/test_applications.py"
+      ],
+      "notes": "CPU train/validate/predict/fit integration tested for ordinary and evidential classifiers, weighted gradient accumulation, dtype conversion, probability metrics, global validation metrics and save/reload. CUDA AMP and real FSDP/DDP collectives remain unexecuted.",
+      "coverage": {
+        "covered_lines": 66,
+        "num_statements": 81,
+        "percent_covered": 76.99115044247787,
+        "percent_covered_display": "77",
+        "missing_lines": 15,
+        "excluded_lines": 0,
+        "percent_statements_covered": 81.48148148148148,
+        "percent_statements_covered_display": "81",
+        "num_branches": 32,
+        "num_partial_branches": 11,
+        "covered_branches": 21,
+        "missing_branches": 11,
+        "percent_branches_covered": 65.625,
+        "percent_branches_covered_display": "66"
+      },
+      "unexecuted_lines": [
+        123,
+        145,
+        174,
+        175,
+        181,
+        189,
+        199,
+        203,
+        204,
+        211,
+        212,
+        213,
+        214,
+        215,
+        232
+      ],
+      "unexecuted_runtime": "CUDA AMP, native accelerator FSDP and actual distributed collectives unavailable. Multi-rank Trainer execution is explicitly unsupported.",
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/trainer_classifier.py",
+      "function": "Trainer.validate",
+      "line": 243,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_modern_trainers.py",
+        "mlguess/tests/test_audit_torch.py",
+        "mlguess/tests/test_applications.py"
+      ],
+      "notes": "CPU train/validate/predict/fit integration tested for ordinary and evidential classifiers, weighted gradient accumulation, dtype conversion, probability metrics, global validation metrics and save/reload. CUDA AMP and real FSDP/DDP collectives remain unexecuted.",
+      "coverage": {
+        "covered_lines": 42,
+        "num_statements": 47,
+        "percent_covered": 83.07692307692308,
+        "percent_covered_display": "83",
+        "missing_lines": 5,
+        "excluded_lines": 0,
+        "percent_statements_covered": 89.36170212765957,
+        "percent_statements_covered_display": "89",
+        "num_branches": 18,
+        "num_partial_branches": 6,
+        "covered_branches": 12,
+        "missing_branches": 6,
+        "percent_branches_covered": 66.66666666666667,
+        "percent_branches_covered_display": "67"
+      },
+      "unexecuted_lines": [
+        284,
+        309,
+        310,
+        315,
+        338
+      ],
+      "unexecuted_runtime": "CUDA AMP, native accelerator FSDP and actual distributed collectives unavailable. Multi-rank Trainer execution is explicitly unsupported.",
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/trainer_classifier.py",
+      "function": "Trainer.predict",
+      "line": 346,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_modern_trainers.py",
+        "mlguess/tests/test_audit_torch.py",
+        "mlguess/tests/test_applications.py"
+      ],
+      "notes": "CPU train/validate/predict/fit integration tested for ordinary and evidential classifiers, weighted gradient accumulation, dtype conversion, probability metrics, global validation metrics and save/reload. CUDA AMP and real FSDP/DDP collectives remain unexecuted.",
+      "coverage": {
+        "covered_lines": 53,
+        "num_statements": 57,
+        "percent_covered": 89.33333333333333,
+        "percent_covered_display": "89",
+        "missing_lines": 4,
+        "excluded_lines": 0,
+        "percent_statements_covered": 92.98245614035088,
+        "percent_statements_covered_display": "93",
+        "num_branches": 18,
+        "num_partial_branches": 4,
+        "covered_branches": 14,
+        "missing_branches": 4,
+        "percent_branches_covered": 77.77777777777777,
+        "percent_branches_covered_display": "78"
+      },
+      "unexecuted_lines": [
+        415,
+        438,
+        439,
+        451
+      ],
+      "unexecuted_runtime": "CUDA AMP, native accelerator FSDP and actual distributed collectives unavailable. Multi-rank Trainer execution is explicitly unsupported.",
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/trainer_classifier.py",
+      "function": "Trainer.fit",
+      "line": 466,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_modern_trainers.py",
+        "mlguess/tests/test_audit_torch.py",
+        "mlguess/tests/test_applications.py"
+      ],
+      "notes": "CPU train/validate/predict/fit integration tested for ordinary and evidential classifiers, weighted gradient accumulation, dtype conversion, probability metrics, global validation metrics and save/reload. CUDA AMP and real FSDP/DDP collectives remain unexecuted.",
+      "coverage": {
+        "covered_lines": 53,
+        "num_statements": 78,
+        "percent_covered": 61.904761904761905,
+        "percent_covered_display": "62",
+        "missing_lines": 25,
+        "excluded_lines": 0,
+        "percent_statements_covered": 67.94871794871794,
+        "percent_statements_covered_display": "68",
+        "num_branches": 48,
+        "num_partial_branches": 15,
+        "covered_branches": 25,
+        "missing_branches": 23,
+        "percent_branches_covered": 52.083333333333336,
+        "percent_branches_covered_display": "52"
+      },
+      "unexecuted_lines": [
+        500,
+        507,
+        512,
+        522,
+        523,
+        524,
+        525,
+        526,
+        527,
+        579,
+        596,
+        631,
+        636,
+        638,
+        642,
+        649,
+        658,
+        664,
+        665,
+        670,
+        680,
+        686,
+        687,
+        691,
+        692
+      ],
+      "unexecuted_runtime": "CUDA AMP, native accelerator FSDP and actual distributed collectives unavailable. Multi-rank Trainer execution is explicitly unsupported.",
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/trainer_regression.py",
+      "function": "cleanup",
+      "line": 21,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch.py::test_trainer_cleanup_only_destroys_active_group"
+      ],
+      "notes": "Mocked unavailable/inactive/active distributed states verify only an initialized group is destroyed and repeated cleanup is safe. No real collective execution claimed.",
+      "coverage": {
+        "covered_lines": 0,
+        "num_statements": 2,
+        "percent_covered": 0.0,
+        "percent_covered_display": "0",
+        "missing_lines": 2,
+        "excluded_lines": 0,
+        "percent_statements_covered": 0.0,
+        "percent_statements_covered_display": "0",
+        "num_branches": 2,
+        "num_partial_branches": 0,
+        "covered_branches": 0,
+        "missing_branches": 2,
+        "percent_branches_covered": 0.0,
+        "percent_branches_covered_display": "0"
+      },
+      "unexecuted_lines": [
+        30,
+        31
+      ],
+      "reviewed": true,
+      "coverage_scope": "Coverage numbers below describe the earlier 158-test scoped run. Supplemental execution passes in audit-torch-helpers.xml; final all-module coverage is generated separately by the parent audit."
+    },
+    {
+      "file": "mlguess/torch/trainer_regression.py",
+      "function": "accum_log",
+      "line": 34,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_modern_trainers.py",
+        "mlguess/tests/test_audit_torch.py",
+        "mlguess/tests/test_applications.py"
+      ],
+      "notes": "CPU evidential train/validate/predict/fit integration tested, including float64 inputs, vector targets, inverse target scaling, finite uncertainty, gradient accumulation and save/reload. CUDA AMP and real FSDP/DDP collectives remain unexecuted.",
+      "coverage": {
+        "covered_lines": 4,
+        "num_statements": 4,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 2,
+        "num_partial_branches": 0,
+        "covered_branches": 2,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/trainer_regression.py",
+      "function": "Trainer.__init__",
+      "line": 57,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_modern_trainers.py",
+        "mlguess/tests/test_audit_torch.py",
+        "mlguess/tests/test_applications.py"
+      ],
+      "notes": "CPU evidential train/validate/predict/fit integration tested, including float64 inputs, vector targets, inverse target scaling, finite uncertainty, gradient accumulation and save/reload. CUDA AMP and real FSDP/DDP collectives remain unexecuted.",
+      "coverage": {
+        "covered_lines": 6,
+        "num_statements": 7,
+        "percent_covered": 77.77777777777777,
+        "percent_covered_display": "78",
+        "missing_lines": 1,
+        "excluded_lines": 0,
+        "percent_statements_covered": 85.71428571428571,
+        "percent_statements_covered_display": "86",
+        "num_branches": 2,
+        "num_partial_branches": 1,
+        "covered_branches": 1,
+        "missing_branches": 1,
+        "percent_branches_covered": 50.0,
+        "percent_branches_covered_display": "50"
+      },
+      "unexecuted_lines": [
+        72
+      ],
+      "unexecuted_runtime": "CUDA AMP, native accelerator FSDP and actual distributed collectives unavailable. Multi-rank Trainer execution is explicitly unsupported.",
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/trainer_regression.py",
+      "function": "Trainer.train_one_epoch",
+      "line": 76,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_modern_trainers.py",
+        "mlguess/tests/test_audit_torch.py",
+        "mlguess/tests/test_applications.py"
+      ],
+      "notes": "CPU evidential train/validate/predict/fit integration tested, including float64 inputs, vector targets, inverse target scaling, finite uncertainty, gradient accumulation and save/reload. CUDA AMP and real FSDP/DDP collectives remain unexecuted.",
+      "coverage": {
+        "covered_lines": 67,
+        "num_statements": 84,
+        "percent_covered": 74.16666666666667,
+        "percent_covered_display": "74",
+        "missing_lines": 17,
+        "excluded_lines": 0,
+        "percent_statements_covered": 79.76190476190476,
+        "percent_statements_covered_display": "80",
+        "num_branches": 36,
+        "num_partial_branches": 14,
+        "covered_branches": 22,
+        "missing_branches": 14,
+        "percent_branches_covered": 61.111111111111114,
+        "percent_branches_covered_display": "61"
+      },
+      "unexecuted_lines": [
+        108,
+        130,
+        145,
+        152,
+        159,
+        160,
+        166,
+        174,
+        184,
+        188,
+        189,
+        195,
+        196,
+        197,
+        198,
+        199,
+        216
+      ],
+      "unexecuted_runtime": "CUDA AMP, native accelerator FSDP and actual distributed collectives unavailable. Multi-rank Trainer execution is explicitly unsupported.",
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/trainer_regression.py",
+      "function": "Trainer.validate",
+      "line": 227,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_modern_trainers.py",
+        "mlguess/tests/test_audit_torch.py",
+        "mlguess/tests/test_applications.py"
+      ],
+      "notes": "CPU evidential train/validate/predict/fit integration tested, including float64 inputs, vector targets, inverse target scaling, finite uncertainty, gradient accumulation and save/reload. CUDA AMP and real FSDP/DDP collectives remain unexecuted.",
+      "coverage": {
+        "covered_lines": 41,
+        "num_statements": 49,
+        "percent_covered": 74.64788732394366,
+        "percent_covered_display": "75",
+        "missing_lines": 8,
+        "excluded_lines": 0,
+        "percent_statements_covered": 83.6734693877551,
+        "percent_statements_covered_display": "84",
+        "num_branches": 22,
+        "num_partial_branches": 10,
+        "covered_branches": 12,
+        "missing_branches": 10,
+        "percent_branches_covered": 54.54545454545455,
+        "percent_branches_covered_display": "55"
+      },
+      "unexecuted_lines": [
+        269,
+        277,
+        279,
+        286,
+        294,
+        295,
+        300,
+        322
+      ],
+      "unexecuted_runtime": "CUDA AMP, native accelerator FSDP and actual distributed collectives unavailable. Multi-rank Trainer execution is explicitly unsupported.",
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/trainer_regression.py",
+      "function": "Trainer.predict",
+      "line": 330,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_modern_trainers.py",
+        "mlguess/tests/test_audit_torch.py",
+        "mlguess/tests/test_applications.py"
+      ],
+      "notes": "CPU evidential train/validate/predict/fit integration tested, including float64 inputs, vector targets, inverse target scaling, finite uncertainty, gradient accumulation and save/reload. CUDA AMP and real FSDP/DDP collectives remain unexecuted.",
+      "coverage": {
+        "covered_lines": 52,
+        "num_statements": 58,
+        "percent_covered": 84.61538461538461,
+        "percent_covered_display": "85",
+        "missing_lines": 6,
+        "excluded_lines": 0,
+        "percent_statements_covered": 89.65517241379311,
+        "percent_statements_covered_display": "90",
+        "num_branches": 20,
+        "num_partial_branches": 6,
+        "covered_branches": 14,
+        "missing_branches": 6,
+        "percent_branches_covered": 70.0,
+        "percent_branches_covered_display": "70"
+      },
+      "unexecuted_lines": [
+        381,
+        394,
+        412,
+        419,
+        420,
+        431
+      ],
+      "unexecuted_runtime": "CUDA AMP, native accelerator FSDP and actual distributed collectives unavailable. Multi-rank Trainer execution is explicitly unsupported.",
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/trainer_regression.py",
+      "function": "Trainer.fit",
+      "line": 445,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_modern_trainers.py",
+        "mlguess/tests/test_audit_torch.py",
+        "mlguess/tests/test_applications.py"
+      ],
+      "notes": "CPU evidential train/validate/predict/fit integration tested, including float64 inputs, vector targets, inverse target scaling, finite uncertainty, gradient accumulation and save/reload. CUDA AMP and real FSDP/DDP collectives remain unexecuted.",
+      "coverage": {
+        "covered_lines": 51,
+        "num_statements": 76,
+        "percent_covered": 60.65573770491803,
+        "percent_covered_display": "61",
+        "missing_lines": 25,
+        "excluded_lines": 0,
+        "percent_statements_covered": 67.10526315789474,
+        "percent_statements_covered_display": "67",
+        "num_branches": 46,
+        "num_partial_branches": 15,
+        "covered_branches": 23,
+        "missing_branches": 23,
+        "percent_branches_covered": 50.0,
+        "percent_branches_covered_display": "50"
+      },
+      "unexecuted_lines": [
+        480,
+        487,
+        492,
+        502,
+        503,
+        504,
+        505,
+        506,
+        507,
+        541,
+        574,
+        591,
+        625,
+        629,
+        631,
+        635,
+        642,
+        651,
+        657,
+        658,
+        663,
+        679,
+        680,
+        684,
+        685
+      ],
+      "unexecuted_runtime": "CUDA AMP, native accelerator FSDP and actual distributed collectives unavailable. Multi-rank Trainer execution is explicitly unsupported.",
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/training_utils.py",
+      "function": "BatchResults.__init__",
+      "line": 12,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch.py",
+        "mlguess/tests/test_modern_trainers.py"
+      ],
+      "notes": "Shared bookkeeping tested through CPU trainer integration and targeted weighted/sum loss and configuration cases. No predictive or objective formulas are defined here.",
+      "coverage": {
+        "covered_lines": 4,
+        "num_statements": 4,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 0,
+        "num_partial_branches": 0,
+        "covered_branches": 0,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/training_utils.py",
+      "function": "batch_limit",
+      "line": 19,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch.py",
+        "mlguess/tests/test_modern_trainers.py"
+      ],
+      "notes": "Shared bookkeeping tested through CPU trainer integration and targeted weighted/sum loss and configuration cases. No predictive or objective formulas are defined here.",
+      "coverage": {
+        "covered_lines": 5,
+        "num_statements": 6,
+        "percent_covered": 80.0,
+        "percent_covered_display": "80",
+        "missing_lines": 1,
+        "excluded_lines": 0,
+        "percent_statements_covered": 83.33333333333333,
+        "percent_statements_covered_display": "83",
+        "num_branches": 4,
+        "num_partial_branches": 1,
+        "covered_branches": 3,
+        "missing_branches": 1,
+        "percent_branches_covered": 75.0,
+        "percent_branches_covered_display": "75"
+      },
+      "unexecuted_lines": [
+        24
+      ],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/training_utils.py",
+      "function": "underlying_model",
+      "line": 28,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch.py",
+        "mlguess/tests/test_modern_trainers.py"
+      ],
+      "notes": "Shared bookkeeping tested through CPU trainer integration and targeted weighted/sum loss and configuration cases. No predictive or objective formulas are defined here.",
+      "coverage": {
+        "covered_lines": 3,
+        "num_statements": 3,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 2,
+        "num_partial_branches": 0,
+        "covered_branches": 2,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/training_utils.py",
+      "function": "class_labels",
+      "line": 35,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch.py",
+        "mlguess/tests/test_modern_trainers.py"
+      ],
+      "notes": "Shared bookkeeping tested through CPU trainer integration and targeted weighted/sum loss and configuration cases. No predictive or objective formulas are defined here.",
+      "coverage": {
+        "covered_lines": 4,
+        "num_statements": 4,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 2,
+        "num_partial_branches": 0,
+        "covered_branches": 2,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/training_utils.py",
+      "function": "loss_weight",
+      "line": 44,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch.py",
+        "mlguess/tests/test_modern_trainers.py"
+      ],
+      "notes": "Shared bookkeeping tested through CPU trainer integration and targeted weighted/sum loss and configuration cases. No predictive or objective formulas are defined here.",
+      "coverage": {
+        "covered_lines": 7,
+        "num_statements": 7,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 4,
+        "num_partial_branches": 0,
+        "covered_branches": 4,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/training_utils.py",
+      "function": "normalize_gradients",
+      "line": 55,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch.py",
+        "mlguess/tests/test_modern_trainers.py"
+      ],
+      "notes": "Shared bookkeeping tested through CPU trainer integration and targeted weighted/sum loss and configuration cases. No predictive or objective formulas are defined here.",
+      "coverage": {
+        "covered_lines": 5,
+        "num_statements": 6,
+        "percent_covered": 78.57142857142857,
+        "percent_covered_display": "79",
+        "missing_lines": 1,
+        "excluded_lines": 0,
+        "percent_statements_covered": 83.33333333333333,
+        "percent_statements_covered_display": "83",
+        "num_branches": 8,
+        "num_partial_branches": 2,
+        "covered_branches": 6,
+        "missing_branches": 2,
+        "percent_branches_covered": 75.0,
+        "percent_branches_covered_display": "75"
+      },
+      "unexecuted_lines": [
+        57
+      ],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/training_utils.py",
+      "function": "result_mean",
+      "line": 64,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch.py::test_loss_reduction_preserved_across_unequal_batches",
+        "mlguess/tests/test_audit_torch.py::test_unequal_accumulation_matches_full_batch_mean"
+      ],
+      "notes": "Mean losses use sample counts or weighted-CE denominators; sum-reduced losses are summed. Unequal minibatch partitioning matches a single full-batch analytical reference.",
+      "coverage": {
+        "covered_lines": 7,
+        "num_statements": 7,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 4,
+        "num_partial_branches": 0,
+        "covered_branches": 4,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/training_utils.py",
+      "function": "renamed_results",
+      "line": 74,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch.py",
+        "mlguess/tests/test_modern_trainers.py"
+      ],
+      "notes": "Shared bookkeeping tested through CPU trainer integration and targeted weighted/sum loss and configuration cases. No predictive or objective formulas are defined here.",
+      "coverage": {
+        "covered_lines": 5,
+        "num_statements": 5,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 0,
+        "num_partial_branches": 0,
+        "covered_branches": 0,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/training_utils.py",
+      "function": "best_metric_index",
+      "line": 82,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch.py::test_best_metric_selection_supports_maximum_and_skips_missing_values"
+      ],
+      "notes": "Finite min/max metric selection tested; missing values skipped and all-nonfinite data rejected. Trainer stopping offsets use logged epochs, including resumed logs.",
+      "coverage": {
+        "covered_lines": 6,
+        "num_statements": 7,
+        "percent_covered": 81.81818181818181,
+        "percent_covered_display": "82",
+        "missing_lines": 1,
+        "excluded_lines": 0,
+        "percent_statements_covered": 85.71428571428571,
+        "percent_statements_covered_display": "86",
+        "num_branches": 4,
+        "num_partial_branches": 1,
+        "covered_branches": 3,
+        "missing_branches": 1,
+        "percent_branches_covered": 75.0,
+        "percent_branches_covered_display": "75"
+      },
+      "unexecuted_lines": [
+        84
+      ],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/training_utils.py",
+      "function": "distributed_enabled",
+      "line": 92,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch.py::test_direct_trainers_reject_unvalidated_multi_rank_execution"
+      ],
+      "notes": "Rejects uninitialized distributed mode and multi-rank Trainer use explicitly. Real global sample aggregation, weighted gradients and synchronized early stopping are not implemented; no rank-local results are claimed as validated global results.",
+      "coverage": {
+        "covered_lines": 7,
+        "num_statements": 7,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 6,
+        "num_partial_branches": 0,
+        "covered_branches": 6,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/torch/training_utils.py",
+      "function": "prepare_model_device",
+      "line": 108,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch.py::test_fsdp_device_preparation_does_not_move_offloaded_module",
+        "mlguess/tests/test_modern_trainers.py::test_device_follows_cpu_model_even_when_cuda_available"
+      ],
+      "notes": "Ordinary CPU movement tested; initialized FSDP placement/offload contract and compute-device selection tested with a fake FSDP module only. No actual CUDA/FSDP execution.",
+      "coverage": {
+        "covered_lines": 14,
+        "num_statements": 14,
+        "percent_covered": 100.0,
+        "percent_covered_display": "100",
+        "missing_lines": 0,
+        "excluded_lines": 0,
+        "percent_statements_covered": 100.0,
+        "percent_statements_covered_display": "100",
+        "num_branches": 6,
+        "num_partial_branches": 0,
+        "covered_branches": 6,
+        "missing_branches": 0,
+        "percent_branches_covered": 100.0,
+        "percent_branches_covered_display": "100"
+      },
+      "unexecuted_lines": [],
+      "reviewed": true
+    }
+  ]
+}

@@ -2,6 +2,11 @@ import sklearn.model_selection as ms
 
 
 def load_splitter(splitter, n_splits=1, random_state=1000, train_size=0.9):
+    """Construct sklearn splitters with their established ordering semantics.
+
+    ``random_state`` controls shuffle-split methods. K-fold methods remain
+    nonshuffled, so sklearn must receive no random state for those methods.
+    """
     choices = [
         "GroupKFold",
         "GroupShuffleSplit",
@@ -23,17 +28,13 @@ def load_splitter(splitter, n_splits=1, random_state=1000, train_size=0.9):
             n_splits=n_splits, random_state=random_state, train_size=train_size
         )
     elif splitter == "StratifiedKFold":
-        return ms.StratifiedKFold(
-            n_splits=n_splits, random_state=random_state
-        )
+        return ms.StratifiedKFold(n_splits=n_splits, shuffle=False)
     elif splitter == "StratifiedShuffleSplit":
         return ms.StratifiedShuffleSplit(
             n_splits=n_splits, random_state=random_state, train_size=train_size
         )
     elif splitter == "StratifiedGroupKFold":
-        return ms.StratifiedGroupKFold(
-            n_splits=n_splits, random_state=random_state,
-        )
+        return ms.StratifiedGroupKFold(n_splits=n_splits, shuffle=False)
     elif splitter == "TimeSeriesSplit":
         return ms.TimeSeriesSplit(
             n_splits=n_splits,

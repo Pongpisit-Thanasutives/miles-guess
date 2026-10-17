@@ -8,11 +8,14 @@ import numpy as np
 import pandas as pd
 import torch
 import torch.distributed as dist
-import torch.fft
 import tqdm
-from torch.cuda.amp import autocast
-import optuna
-from mlguess.torch.checkpoint import TorchFSDPCheckpointIO
+
+from mlguess.torch.mc_dropout import as_model_input
+from mlguess.torch.training_utils import (
+    BatchResults, batch_limit, underlying_model, loss_weight,
+    normalize_gradients, result_mean, renamed_results, best_metric_index,
+    distributed_enabled, prepare_model_device,
+)
 
 
 def cleanup():
@@ -24,7 +27,8 @@ def cleanup():
     Returns:
         None
     """
-    dist.destroy_process_group()
+    if dist.is_available() and dist.is_initialized():
+        dist.destroy_process_group()
 
 
 def accum_log(log, new_logs):
@@ -50,21 +54,23 @@ def accum_log(log, new_logs):
 
 
 class Trainer:
-    def __init__(self, model, rank, module=False):
+    def __init__(self, model, rank=0, module=False, device=None):
         """Initialize the Trainer class.
 
         Args:
             model (nn.Module): The model to be trained.
             rank (int): The rank of the current process (used for distributed training).
             module (bool): Whether the model is wrapped in a `DistributedDataParallel` module. Default is False.
+            device (str or torch.device, optional): Explicit device; otherwise use the model device.
         """
         super(Trainer, self).__init__()
         self.model = model
         self.rank = rank
-        self.device = torch.device(f"cuda:{rank % torch.cuda.device_count()}") if torch.cuda.is_available() else torch.device("cpu")
+        self.device = prepare_model_device(self.model, device)
 
-        if module:
-            self.model = self.model.module
+        if module and not hasattr(self.model, "module"):
+            raise ValueError("module=True requires a wrapped model with a .module attribute")
+        self.prediction_model = underlying_model(self.model)
 
     # Training function.
     def train_one_epoch(
@@ -98,16 +104,14 @@ class Trainer:
         batches_per_epoch = conf['trainer']['batches_per_epoch']
         grad_accum_every = conf['trainer']['grad_accum_every']
         amp = conf['trainer']['amp']
-        distributed = True if conf["trainer"]["mode"] in ["fsdp", "ddp"] else False
-
-        # update the learning rate if epoch-by-epoch updates that dont depend on a metric
-        if conf['trainer']['use_scheduler'] and conf['trainer']['scheduler']['scheduler_type'] == "lambda":
-            scheduler.step()
+        if grad_accum_every < 1:
+            raise ValueError("grad_accum_every must be at least 1")
+        if scaler is None:
+            scaler = torch.amp.GradScaler("cuda", enabled=False)
+        distributed = distributed_enabled(conf)
 
         # set up a custom tqdm
-        batches_per_epoch = (
-            batches_per_epoch if 0 < batches_per_epoch < len(trainloader) else len(trainloader)
-        )
+        batches_per_epoch = batch_limit(trainloader, batches_per_epoch)
 
         batch_group_generator = tqdm.tqdm(
             enumerate(trainloader),
@@ -116,75 +120,100 @@ class Trainer:
             disable=True if self.rank > 0 else False
         )
 
-        results_dict = defaultdict(list)
+        results_dict = BatchResults(loss_reduction=getattr(criterion, "reduction", None))
 
         self.model.train()
+        optimizer.zero_grad(set_to_none=True)
+        accumulated_weight = 0.0
         for i, (x, y) in batch_group_generator:
+            if i >= batches_per_epoch:
+                break
 
             logs = {}
 
             commit_loss = 0.0
 
-            with autocast(enabled=amp):
-                x = x.to(self.device)
+            # Keep CPU training in float32; evidential special functions need full precision.
+            with torch.autocast(device_type=self.device.type, enabled=amp and self.device.type == "cuda"):
+                x = as_model_input(x, self.model, device=self.device)
                 y_pred = self.model(x)
                 gamma, nu, alpha, beta = y_pred
-                y = y.to(device=self.device, dtype=x.dtype)
+                y = y.to(device=self.device, dtype=gamma.dtype)
+                if y.ndim == 1 and gamma.ndim == 2 and gamma.shape[-1] == 1:
+                    y = y.unsqueeze(-1)
+                if y.shape != gamma.shape:
+                    raise ValueError("Regression targets must match the prediction shape")
                 loss = criterion(gamma, nu, alpha, beta, y.to(x.dtype))
 
                 # Metrics
                 y_pred = (_.cpu().detach() for _ in y_pred)
-                mu, ale, epi, total = self.model.predict_uncertainty(y_pred, y_scaler=transform)
+                mu, ale, epi, total = self.prediction_model.predict_uncertainty(y_pred, y_scaler=transform)
                 if transform:
-                    y = transform.inverse_transform(y.cpu())
+                    y = transform.inverse_transform(y.detach().cpu().numpy())
                 else:
-                    y = y.cpu()
+                    y = y.detach().cpu().numpy()
                 metrics_dict = metrics(y, mu.numpy(), total, split="train")
                 for name, value in metrics_dict.items():
-                    value = torch.Tensor([value]).cuda(self.device, non_blocking=True)
+                    value = torch.tensor([np.nan if value is None else value], dtype=torch.float64, device=self.device)
                     if distributed:
-                        dist.all_reduce(value, dist.ReduceOp.AVG, async_op=False)
+                        dist.all_reduce(value, dist.ReduceOp.SUM, async_op=False)
+                        value /= dist.get_world_size()
                     results_dict[name].append(value[0].item())
 
                 loss = loss.mean() + commit_loss
 
-                scaler.scale(loss / grad_accum_every).backward()
+                if not torch.isfinite(loss):
+                    raise FloatingPointError("Non-finite training loss")
+                weight = loss_weight(criterion, y)
+                accumulated_weight += weight
+                scaler.scale(loss * weight).backward()
 
-            accum_log(logs, {'loss': loss.item() / grad_accum_every})
+            accum_log(logs, {'loss': loss.item()})
 
             if distributed:
                 torch.distributed.barrier()
 
-            scaler.step(optimizer)
-            scaler.update()
-            optimizer.zero_grad()
+            if (i + 1) % grad_accum_every == 0 or i + 1 == batches_per_epoch:
+                denominator = 1.0 if getattr(criterion, "reduction", None) == "sum" else accumulated_weight
+                normalize_gradients(optimizer, denominator)
+                scaler.step(optimizer)
+                scaler.update()
+                optimizer.zero_grad(set_to_none=True)
+                accumulated_weight = 0.0
+                if conf['trainer']['use_scheduler'] and conf['trainer']['scheduler']['scheduler_type'] == "cosine-annealing":
+                    scheduler.step()
 
-            batch_loss = torch.Tensor([logs["loss"]]).cuda(self.device)
+            batch_loss = torch.tensor([logs["loss"]], device=self.device)
             if distributed:
-                dist.all_reduce(batch_loss, dist.ReduceOp.AVG, async_op=False)
+                dist.all_reduce(batch_loss, dist.ReduceOp.SUM, async_op=False)
+                batch_loss /= dist.get_world_size()
             results_dict["train_loss"].append(batch_loss[0].item())
+            results_dict.batch_sizes.append(len(x))
+            results_dict.loss_weights.append(weight)
 
             if not np.isfinite(np.mean(results_dict["train_loss"])):
                 try:
-                    raise optuna.TrialPruned()
-                except Exception as E:
-                    raise E
+                    from optuna import TrialPruned
+                except ImportError:
+                    raise FloatingPointError("Non-finite training loss") from None
+                raise TrialPruned("Non-finite training loss")
 
             # agg the results
             to_print = "Epoch: {} train_loss: {:.6f} train_mae: {:.6f}".format(
                 epoch,
                 np.mean(results_dict["train_loss"]),
-                np.mean(results_dict["train_mae"]),
+                np.mean(results_dict.get("train_mae", [np.nan])),
             )
             to_print += " lr: {:.12f}".format(optimizer.param_groups[0]["lr"])
             if self.rank == 0:
                 batch_group_generator.set_description(to_print)
 
-            if conf['trainer']['use_scheduler'] and conf['trainer']['scheduler']['scheduler_type'] == "cosine-annealing":
-                scheduler.step()
 
-            if i >= batches_per_epoch and i > 0:
+            if i + 1 >= batches_per_epoch:
                 break
+
+        if conf["trainer"]["use_scheduler"] and conf["trainer"]["scheduler"]["scheduler_type"] == "lambda":
+            scheduler.step()
 
         #  Shutdown the progbar
         batch_group_generator.close()
@@ -219,15 +248,13 @@ class Trainer:
         """
         self.model.eval()
 
-        valid_batches_per_epoch = conf['trainer']['valid_batches_per_epoch']
-        distributed = True if conf["trainer"]["mode"] in ["fsdp", "ddp"] else False
+        valid_batches_per_epoch = conf['trainer'].get('valid_batches_per_epoch', 0)
+        distributed = distributed_enabled(conf)
 
-        results_dict = defaultdict(list)
+        results_dict = BatchResults(loss_reduction=getattr(criterion, "reduction", None))
 
         # set up a custom tqdm
-        valid_batches_per_epoch = (
-            valid_batches_per_epoch if 0 < valid_batches_per_epoch < len(valid_loader) else len(valid_loader)
-        )
+        valid_batches_per_epoch = batch_limit(valid_loader, valid_batches_per_epoch)
 
         batch_group_generator = tqdm.tqdm(
             enumerate(valid_loader),
@@ -238,42 +265,53 @@ class Trainer:
 
         self.model.eval()
         for i, (x, y) in batch_group_generator:
+            if i >= valid_batches_per_epoch:
+                break
 
             with torch.no_grad():
-                x = x.to(self.device)
+                x = as_model_input(x, self.model, device=self.device)
                 y_pred = self.model(x)
                 gamma, nu, alpha, beta = y_pred
-                y = y.to(device=self.device, dtype=x.dtype)
+                y = y.to(device=self.device, dtype=gamma.dtype)
+                if y.ndim == 1 and gamma.ndim == 2 and gamma.shape[-1] == 1:
+                    y = y.unsqueeze(-1)
+                if y.shape != gamma.shape:
+                    raise ValueError("Regression targets must match the prediction shape")
                 loss = criterion(gamma, nu, alpha, beta, y)
 
                 # Metrics
                 y_pred = (_.cpu() for _ in y_pred)
-                mu, ale, epi, total = self.model.predict_uncertainty(y_pred, y_scaler=transform)
+                mu, ale, epi, total = self.prediction_model.predict_uncertainty(y_pred, y_scaler=transform)
                 if transform:
-                    y = transform.inverse_transform(y.cpu())
+                    y = transform.inverse_transform(y.detach().cpu().numpy())
+                else:
+                    y = y.detach().cpu().numpy()
                 metrics_dict = metrics(y, mu.numpy(), total, split="valid")
 
                 for name, value in metrics_dict.items():
-                    value = torch.Tensor([value]).cuda(self.device, non_blocking=True)
+                    value = torch.tensor([np.nan if value is None else value], dtype=torch.float64, device=self.device)
                     if distributed:
-                        dist.all_reduce(value, dist.ReduceOp.AVG, async_op=False)
+                        dist.all_reduce(value, dist.ReduceOp.SUM, async_op=False)
+                        value /= dist.get_world_size()
                     results_dict[name].append(value[0].item())
 
-                batch_loss = torch.Tensor([loss.item()]).cuda(self.device)
+                batch_loss = torch.tensor([loss.mean().item()], device=self.device)
                 if distributed:
                     torch.distributed.barrier()
                 results_dict["valid_loss"].append(batch_loss[0].item())
+                results_dict.batch_sizes.append(len(x))
+                results_dict.loss_weights.append(loss_weight(criterion, y))
 
                 # print to tqdm
                 to_print = "Epoch: {} valid_loss: {:.6f} valid_mae: {:.6f}".format(
                     epoch,
                     np.mean(results_dict["valid_loss"]),
-                    np.mean(results_dict["valid_mae"])
+                    np.mean(results_dict.get("valid_mae", [np.nan]))
                 )
                 if self.rank == 0:
                     batch_group_generator.set_description(to_print)
 
-                if i >= valid_batches_per_epoch and i > 0:
+                if i + 1 >= valid_batches_per_epoch:
                     break
 
         # Shutdown the progbar
@@ -296,7 +334,8 @@ class Trainer:
         criterion,
         metrics,
         transform=None,
-        split=None
+        split=None,
+        max_batches=0
     ):
         """Make predictions with the model on the test dataset.
 
@@ -314,38 +353,48 @@ class Trainer:
                 - metrics (dict): Dictionary containing evaluation metrics.
         """
         self.model.eval()
-        distributed = True if conf["trainer"]["mode"] in ["fsdp", "ddp"] else False
+        distributed = distributed_enabled(conf)
 
-        results_dict = defaultdict(list)
+        results_dict = BatchResults(loss_reduction=getattr(criterion, "reduction", None))
+        prediction_batches = batch_limit(test_loader, max_batches)
+        split = "test" if split is None else split
         mu_list, ale_list, epi_list, y_list = [], [], [], []
 
         batch_group_generator = tqdm.tqdm(
             enumerate(test_loader),
-            total=len(test_loader),
+            total=prediction_batches,
             leave=True,
             disable=True if self.rank > 0 else False
         )
 
         for i, (x, y) in batch_group_generator:
+            if i >= prediction_batches:
+                break
             with torch.no_grad():
-                x = x.to(self.device)
+                x = as_model_input(x, self.model, device=self.device)
                 y_pred = self.model(x)
                 gamma, nu, alpha, beta = y_pred
-                y = y.to(device=self.device, dtype=x.dtype)
+                y = y.to(device=self.device, dtype=gamma.dtype)
+                if y.ndim == 1 and gamma.ndim == 2 and gamma.shape[-1] == 1:
+                    y = y.unsqueeze(-1)
+                if y.shape != gamma.shape:
+                    raise ValueError("Regression targets must match the prediction shape")
                 loss = criterion(gamma, nu, alpha, beta, y)
 
                 # Metrics
                 y_pred = (_.cpu() for _ in y_pred)
-                mu, ale, epi, total = self.model.predict_uncertainty(y_pred, y_scaler=transform)
-                mu_list.append(mu)
-                ale_list.append(ale)
-                epi_list.append(epi)
-                y_list.append(y.cpu())
+                mu, ale, epi, total = self.prediction_model.predict_uncertainty(y_pred, y_scaler=transform)
+                mu_list.append(np.asarray(mu))
+                ale_list.append(np.asarray(ale))
+                epi_list.append(np.asarray(epi))
+                y_list.append(y.cpu().numpy())
 
-                batch_loss = torch.Tensor([loss.item()]).cuda(self.device)
+                batch_loss = torch.tensor([loss.mean().item()], device=self.device)
                 if distributed:
                     torch.distributed.barrier()
                 results_dict[f"{split}_loss"].append(batch_loss[0].item())
+                results_dict.batch_sizes.append(len(x))
+                results_dict.loss_weights.append(loss_weight(criterion, y))
 
                 # Print to tqdm
                 to_print = f'{split} loss: {np.mean(results_dict[f"{split}_loss"]):.6f}'
@@ -365,11 +414,14 @@ class Trainer:
         # Compute metrics
         metrics_dict = metrics(y, mu, total, split=split)
         for name, value in metrics_dict.items():
-            value = torch.Tensor([value]).cuda(self.device, non_blocking=True)
+            value = torch.tensor([np.nan if value is None else value], dtype=torch.float64, device=self.device)
             if distributed:
-                dist.all_reduce(value, dist.ReduceOp.AVG, async_op=False)
+                dist.all_reduce(value, dist.ReduceOp.SUM, async_op=False)
+                value /= dist.get_world_size()
             results_dict[name].append(value[0].item())
-        results_dict[f"{split}_loss"].append(np.mean(results_dict[f"{split}_loss"]))
+        results_dict[f"{split}_loss"] = [result_mean(results_dict, f"{split}_loss")]
+        results_dict.batch_sizes = []
+        results_dict.loss_weights = []
 
         # Shutdown the progbar
         batch_group_generator.close()
@@ -422,9 +474,17 @@ class Trainer:
         Returns:
             dict: Dictionary containing training and validation metrics.
         """
-        save_loc = conf['save_loc']
+        save_loc = os.path.expanduser(os.path.expandvars(conf['save_loc']))
+        os.makedirs(save_loc, exist_ok=True)
+        if trial:
+            os.makedirs(os.path.join(save_loc, "trial_results"), exist_ok=True)
         start_epoch = conf['trainer']['start_epoch']
         epochs = conf['trainer']['epochs']
+        if not isinstance(epochs, int) or not isinstance(start_epoch, int) or epochs < 1 or not 0 <= start_epoch <= epochs:
+            raise ValueError("epochs must be positive and start_epoch must lie between 0 and epochs")
+        direction = conf['trainer'].get('training_metric_direction', 'min')
+        if direction not in {"min", "max"}:
+            raise ValueError("training_metric_direction must be 'min' or 'max'")
         skip_validation = conf['trainer']['skip_validation'] if 'skip_validation' in conf['trainer'] else False
 
         # set up the training optimization metric used in callbacks
@@ -447,6 +507,8 @@ class Trainer:
                 results_dict[key] = list(saved_results[key])
 
         for epoch in range(start_epoch, epochs):
+            if hasattr(train_loader.sampler, "set_epoch"):
+                train_loader.sampler.set_epoch(epoch)
 
             logging.info(f"Beginning epoch {epoch}")
 
@@ -476,7 +538,7 @@ class Trainer:
 
             if skip_validation:
 
-                valid_results = train_results
+                valid_results = renamed_results(train_results)
 
             else:
 
@@ -486,7 +548,8 @@ class Trainer:
                     valid_criterion,
                     metrics,
                     transform,
-                    split="valid"
+                    split="valid",
+                    max_batches=conf['trainer'].get('valid_batches_per_epoch', 0)
                 )["metrics"]
 
                 # this version of validation computes metrics batch-by-batch, which may affect metrics computed through binning
@@ -508,28 +571,29 @@ class Trainer:
 
             # update the learning rate if epoch-by-epoch updates
             if conf['trainer']['use_scheduler'] and conf['trainer']['scheduler']['scheduler_type'] == "plateau":
-                scheduler.step(np.mean(valid_results["valid_loss"]))
+                scheduler.step(result_mean(valid_results, "valid_loss"))
 
             # Put things into a results dictionary -> dataframe
 
             results_dict["epoch"].append(epoch)
             all_keys = sorted(["_".join(k.split("_")[1:]) for k in train_results.keys()])
             for name in all_keys:  # "acc", "mae"
-                results_dict[f"train_{name}"].append(np.mean(train_results[f"train_{name}"]))
-                results_dict[f"valid_{name}"].append(np.mean(valid_results[f"valid_{name}"]))
+                results_dict[f"train_{name}"].append(result_mean(train_results, f"train_{name}"))
+                results_dict[f"valid_{name}"].append(result_mean(valid_results, f"valid_{name}"))
             results_dict["lr"].append(optimizer.param_groups[0]["lr"])
 
             df = pd.DataFrame.from_dict(results_dict).reset_index()
 
             # Save the dataframe to disk
 
-            if trial:
-                df.to_csv(
-                    os.path.join(f"{save_loc}", "trial_results", f"training_log_{trial.number}.csv"),
-                    index=False,
-                )
-            else:
-                df.to_csv(os.path.join(f"{save_loc}", "training_log.csv"), index=False)
+            if self.rank == 0:
+                if trial:
+                    df.to_csv(
+                        os.path.join(f"{save_loc}", "trial_results", f"training_log_{trial.number}.csv"),
+                        index=False,
+                    )
+                else:
+                    df.to_csv(os.path.join(f"{save_loc}", "training_log.csv"), index=False)
 
             ############
             #
@@ -549,10 +613,10 @@ class Trainer:
 
                         state_dict = {
                             "epoch": epoch,
-                            "model_state_dict": self.model.state_dict(),
+                            "model_state_dict": self.prediction_model.state_dict(),
                             "optimizer_state_dict": optimizer.state_dict(),
                             'scheduler_state_dict': scheduler.state_dict() if conf["trainer"]["use_scheduler"] else None,
-                            'scaler_state_dict': scaler.state_dict()
+                            'scaler_state_dict': scaler.state_dict() if scaler is not None else None
                         }
                         torch.save(state_dict, f"{save_loc}/checkpoint.pt")
 
@@ -561,6 +625,8 @@ class Trainer:
                     logging.info(f"Saving FSDP model, optimizer, grad scaler, and learning rate scheduler states to {save_loc}")
 
                     # Initialize the checkpoint I/O handler
+
+                    from mlguess.torch.checkpoint import TorchFSDPCheckpointIO
 
                     checkpoint_io = TorchFSDPCheckpointIO()
 
@@ -585,13 +651,14 @@ class Trainer:
                     state_dict = {
                         "epoch": epoch,
                         'scheduler_state_dict': scheduler.state_dict() if conf["trainer"]["use_scheduler"] else None,
-                        'scaler_state_dict': scaler.state_dict()
+                        'scaler_state_dict': scaler.state_dict() if scaler is not None else None
                     }
 
-                    torch.save(state_dict, os.path.join(save_loc, "checkpoint.pt"))
+                    if self.rank == 0:
+                        torch.save(state_dict, os.path.join(save_loc, "checkpoint.pt"))
 
                 # save if this is the best model seen so far
-                if (self.rank == 0) and (results_dict[training_metric][-1] == min(results_dict[training_metric])):
+                if (self.rank == 0) and (results_dict[training_metric][-1] == results_dict[training_metric][best_metric_index(results_dict[training_metric], direction)]):
                     if conf["trainer"]["mode"] == "fsdp":
                         pass
                     else:
@@ -606,13 +673,9 @@ class Trainer:
             #     trial.report(results_dict[training_metric][-1], step=epoch)
 
             # Stop training if we have not improved after X epochs (stopping patience)
-            best_epoch = [
-                i
-                for i, j in enumerate(results_dict[training_metric])
-                if j == min(results_dict[training_metric])
-            ][0]
-            offset = epoch - best_epoch
-            if offset >= conf['trainer']['stopping_patience']:
+            best_epoch = best_metric_index(results_dict[training_metric], direction)
+            offset = epoch - results_dict["epoch"][best_epoch]
+            if offset > 0 and offset >= conf['trainer']['stopping_patience']:
                 logging.info("Stopping early")
                 break
 
@@ -621,13 +684,10 @@ class Trainer:
                 if conf['trainer']['stop_after_epoch']:
                     break
 
-        best_epoch = [
-            i for i, j in enumerate(results_dict[training_metric]) if j == min(results_dict[training_metric])
-        ][0]
+        best_epoch = best_metric_index(results_dict[training_metric], direction)
 
         result = {k: v[best_epoch] for k, v in results_dict.items()}
 
-        if conf["trainer"]["mode"] in ["fsdp", "ddp"]:
-            cleanup()
+        # The caller owns the process group so prediction remains possible after fit.
 
         return result

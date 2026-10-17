@@ -1,177 +1,120 @@
-import pandas as pd
-import numpy as np
+"""Precipitation-type splitting and preprocessing without backend dependencies."""
+
 import logging
+from numbers import Integral
 
-from sklearn.preprocessing import (
-    StandardScaler,
-    MinMaxScaler,
-    OneHotEncoder,
-    LabelEncoder,
-    RobustScaler,
-    QuantileTransformer,
-)
-
-from bridgescaler.group import GroupMinMaxScaler, GroupRobustScaler, GroupStandardScaler
+import numpy as np
+import pandas as pd
 from sklearn.model_selection import GroupShuffleSplit
+from sklearn.preprocessing import OneHotEncoder, LabelEncoder
 
+from mlguess.preprocessing import load_preprocessor
 
 logger = logging.getLogger(__name__)
 
 
+def _calendar_day(value):
+    """Normalize dates, timestamps, and ISO strings to their calendar-day key."""
+    timestamp = pd.Timestamp(value)
+    if pd.isna(timestamp):
+        raise ValueError("Observation and split dates must not be missing")
+    return timestamp.date().isoformat()
+
+
 def load_ptype_uq(conf, data_split=0, verbose=0, drop_mixed=False):
+    """Reserve requested test days, then split remaining whole days into train/val.
 
-    # Load
+    Times on the same date remain one group, including ISO timestamps using
+    ``T`` as the date/time separator. No held-out rows influence preprocessing.
+    ``verbose`` is retained for API compatibility; logging controls verbosity.
+    """
+    if isinstance(data_split, bool) or not isinstance(data_split, Integral):
+        raise ValueError("data_split must be an integer split index")
+    n_splits = conf["ensemble"]["n_splits"]
+    if not 0 <= data_split < n_splits:
+        raise ValueError("data_split must be between zero and ensemble.n_splits - 1")
     df = pd.read_parquet(conf["data_path"])
-
-    # Drop mixed cases
     if drop_mixed:
-        logger.info("Dropping data points with mixed observations")
-        c1 = df["ra_percent"] == 1.0
-        c2 = df["sn_percent"] == 1.0
-        c3 = df["pl_percent"] == 1.0
-        c4 = df["fzra_percent"] == 1.0
-        condition = c1 | c2 | c3 | c4
-        df = df[condition].copy()
-
-    # QC-Filter
+        columns = ["ra_percent", "sn_percent", "pl_percent", "fzra_percent"]
+        df = df[df[columns].eq(1.0).any(axis=1)].copy()
     qc_value = str(conf["qc"])
-    cond1 = df[f"wetbulb{qc_value}_filter"] == 0.0
-    cond2 = df["usa"] == 1.0
-    dg = df[cond1 & cond2].copy()
-
-    dg["day"] = dg["datetime"].apply(lambda x: str(x).split(" ")[0])
-    dg["id"] = range(dg.shape[0])
-
-    # Select test cases
-    test_days_c1 = dg["day"].isin(
-        [day for case in conf["case_studies"].values() for day in case]
-    )
-    test_days_c2 = dg["day"] >= conf["test_cutoff"]
-    test_condition = test_days_c1 | test_days_c2
-
-    # Partition the data into trainable-only and test-only splits
-    train_data = dg[~test_condition].copy()
+    dg = df[(df[f"wetbulb{qc_value}_filter"] == 0.0) & (df["usa"] == 1.0)].copy()
+    if dg.empty:
+        raise ValueError("No observations remain after precipitation-type quality filters")
+    dg["day"] = dg["datetime"].map(_calendar_day)
+    dg["id"] = np.arange(len(dg))
+    test_days = {_calendar_day(day) for case in conf["case_studies"].values() for day in case}
+    cutoff = _calendar_day(conf["test_cutoff"])
+    test_condition = dg["day"].isin(test_days) | (dg["day"] >= cutoff)
+    trainable = dg[~test_condition].copy()
     test_data = dg[test_condition].copy()
-
-    # Make N train-valid splits using day as grouping variable, return "data_split" split
-    gsp = GroupShuffleSplit(
-        n_splits=conf["ensemble"]["n_splits"],
-        random_state=conf["seed"],
-        train_size=conf["train_size1"],
-    )
-    splits = list(gsp.split(train_data, groups=train_data["day"]))
-
-    train_index, valid_index = splits[data_split]
-    train_data, valid_data = (
-        train_data.iloc[train_index].copy(),
-        train_data.iloc[valid_index].copy(),
-    )
-
-    size = df.shape[0]
-    logger.info("Train, validation, and test fractions:")
-    logger.info(
-        f"{train_data.shape[0]/size}, {valid_data.shape[0]/size}, {test_data.shape[0]/size}"
-    )
-    data = {"train": train_data, "val": valid_data, "test": test_data}
-
+    if trainable["day"].nunique() < 2:
+        raise ValueError("At least two non-test calendar days are required for train/validation splitting")
+    splitter = GroupShuffleSplit(n_splits=n_splits, random_state=conf["seed"], train_size=conf["train_size1"])
+    train_index, valid_index = list(splitter.split(trainable, groups=trainable["day"]))[data_split]
+    data = {"train": trainable.iloc[train_index].copy(), "val": trainable.iloc[valid_index].copy(), "test": test_data}
+    logger.info("Train, validation, and test fractions: %s", ", ".join(str(len(data[key]) / len(df)) for key in data))
     return data
 
 
-def preprocess_data(
-    data,
-    input_features,
-    output_features,
-    scaler_type="standard",
-    encoder_type="onehot",
-    groups=[],
-    seed=1000,
-):
-    """Function to select features and scale data for ML
-    Args:
-        data (dictionary of dataframes for training and validation data):
-        input_features (list): Input features
-        output_feature (list): Output feature
-        scaler_type: Type of scaling to perform (supports "standard" and "minmax")
-        encoder_type: Type of encoder to perform (supports "label" and "onehot")
+def preprocess_data(data, input_features, output_features, scaler_type="standard", encoder_type="onehot", groups=None, seed=1000):
+    """Fit feature transforms on train only and preserve the declared class axis.
 
-    Returns:
-        Dictionary of scaled and one-hot encoded data, dictionary of scaler objects
+    ``output_features`` specifies all class columns in their fixed order. A
+    class absent from the training sample retains its column and numeric label
+    in validation/test. This uses the declared schema, never held-out labels to
+    fit a class vocabulary. Returned DataFrames preserve source row indices.
+    Group scaling applies to standard/min-max/robust transforms; quantile
+    scaling retains its per-feature definition.
     """
-    groupby = len(groups)
-
-    scalar_obs = {
-        "normalize": MinMaxScaler() if not groupby else GroupMinMaxScaler(),
-        "symmetric": MinMaxScaler((-1, 1))
-        if not groupby
-        else GroupMinMaxScaler(),
-        "standard": StandardScaler() if not groupby else GroupStandardScaler(),
-        "robust": RobustScaler() if not groupby else GroupRobustScaler(),
-        "quantile": QuantileTransformer(
-            n_quantiles=1000, random_state=seed, output_distribution="normal"
-        ),
-        "quantile-uniform": QuantileTransformer(
-            n_quantiles=1000, random_state=seed, output_distribution="uniform"
-        ),
-    }
-    scalers, scaled_data = {}, {}
-    scalers["input"] = scalar_obs[scaler_type]
-    scalers["output_label"] = LabelEncoder()
-    if encoder_type == "onehot":
-        scalers["output_onehot"] = OneHotEncoder(sparse_output=False)
-
-    if groupby and "quantile" not in scaler_type:
-        scaled_data["train_x"] = pd.DataFrame(
-            scalers["input"].fit_transform(
-                data["train"][input_features], groups=groups
-            ),
-            columns=input_features,
-        )
+    if encoder_type not in {"label", "onehot"}:
+        raise ValueError("encoder_type must be 'label' or 'onehot'")
+    if not input_features or not output_features:
+        raise ValueError("input_features and output_features must not be empty")
+    if data["train"].empty:
+        raise ValueError("Training data must not be empty")
+    groups = [] if groups is None else list(groups)
+    groupby = bool(groups) and "quantile" not in scaler_type
+    if groupby:
+        from bridgescaler.group import GroupMinMaxScaler, GroupRobustScaler, GroupStandardScaler
+        choices = {
+            "normalize": (GroupMinMaxScaler, {}),
+            "symmetric": (GroupMinMaxScaler, {"feature_range": (-1, 1)}),
+            "standard": (GroupStandardScaler, {}),
+            "robust": (GroupRobustScaler, {}),
+        }
+        if scaler_type not in choices:
+            raise ValueError(f"Unsupported grouped scaler: {scaler_type}")
+        factory, options = choices[scaler_type]
+        input_scaler = factory(**options)
     else:
-        scaled_data["train_x"] = pd.DataFrame(
-            scalers["input"].fit_transform(data["train"][input_features]),
-            columns=input_features,
-        )
-    scaled_data["val_x"] = pd.DataFrame(
-        scalers["input"].transform(data["val"][input_features]), columns=input_features
-    )
-    scaled_data["test_x"] = pd.DataFrame(
-        scalers["input"].transform(data["test"][input_features]), columns=input_features
-    )
-    if "left_overs" in data:
-        scaled_data["left_overs_x"] = pd.DataFrame(
-            scalers["input"].transform(data["left_overs"][input_features]),
-            columns=input_features,
-        )
-
-    scalers["output_label"] = LabelEncoder()
-    scaled_data["train_y"] = scalers["output_label"].fit_transform(
-        np.argmax(data["train"][output_features].to_numpy(), 1)
-    )
-    scaled_data["val_y"] = scalers["output_label"].transform(
-        np.argmax(data["val"][output_features].to_numpy(), 1)
-    )
-    scaled_data["test_y"] = scalers["output_label"].transform(
-        np.argmax(data["test"][output_features].to_numpy(), 1)
-    )
-    if "left_overs" in data:
-        scaled_data["left_overs_y"] = scalers["output_label"].transform(
-            np.argmax(data["left_overs"][output_features].to_numpy(), 1)
-        )
-
+        params = {"n_quantiles": min(1000, len(data["train"]))} if "quantile" in scaler_type else {}
+        input_scaler = load_preprocessor(scaler_type, params, seed)
+    train_values = data["train"][input_features]
+    if groupby:
+        train_scaled = input_scaler.fit_transform(train_values, groups=groups)
+    else:
+        train_scaled = input_scaler.fit_transform(train_values)
+    labels = LabelEncoder().fit(np.arange(len(output_features)))
+    scalers = {"input": input_scaler, "output_label": labels}
     if encoder_type == "onehot":
-        scalers["output_onehot"] = OneHotEncoder(sparse_output=False)
-        scaled_data["train_y"] = scalers["output_onehot"].fit_transform(
-            np.expand_dims(scaled_data["train_y"], 1)
-        )
-        scaled_data["val_y"] = scalers["output_onehot"].transform(
-            np.expand_dims(scaled_data["val_y"], 1)
-        )
-        scaled_data["test_y"] = scalers["output_onehot"].transform(
-            np.expand_dims(scaled_data["test_y"], 1)
-        )
-        if "left_overs" in data:
-            scaled_data["left_overs_y"] = scalers["output_onehot"].transform(
-                np.expand_dims(scaled_data["left_overs_y"], 1)
-            )
-
+        encoder = OneHotEncoder(categories=[np.arange(len(output_features))], sparse_output=False)
+        encoder.fit(np.arange(len(output_features)).reshape(-1, 1))
+        scalers["output_onehot"] = encoder
+    scaled_data = {}
+    for split, frame in data.items():
+        if split == "train":
+            features = train_scaled
+        elif frame.empty:
+            features = np.empty((0, len(input_features)))
+        else:
+            features = input_scaler.transform(frame[input_features])
+        scaled_data[f"{split}_x"] = pd.DataFrame(features, columns=input_features, index=frame.index)
+        class_ids = np.argmax(frame[output_features].to_numpy(), axis=1)
+        class_ids = labels.transform(class_ids)
+        if encoder_type == "onehot":
+            encoded = encoder.transform(class_ids.reshape(-1, 1)) if len(class_ids) else np.empty((0, len(output_features)))
+        else:
+            encoded = class_ids
+        scaled_data[f"{split}_y"] = encoded
     return scaled_data, scalers

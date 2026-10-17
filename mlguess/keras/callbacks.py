@@ -1,4 +1,3 @@
-from keras import backend as K
 from keras.callbacks import (
     Callback,
     ModelCheckpoint,
@@ -8,12 +7,13 @@ from keras.callbacks import (
 from keras.callbacks import ReduceLROnPlateau, LearningRateScheduler
 from typing import List, Dict
 import logging
+import copy
+import inspect
 from functools import partial
 import math
 import os
 import keras
 import numpy as np
-from hagelslag.evaluation.ProbabilityMetrics import DistributedROC
 from sklearn.metrics import precision_recall_fscore_support, roc_auc_score
 
 logger = logging.getLogger(__name__)
@@ -21,12 +21,14 @@ logger = logging.getLogger(__name__)
 
 def get_callbacks(config: Dict[str, str], path_extend=False) -> List[Callback]:
     callbacks = []
+    config = copy.deepcopy(config)
 
     if "callbacks" in config:
         if path_extend:
             save_data = os.path.join(config["save_loc"], path_extend)
         else:
             save_data = config["save_loc"]
+        os.makedirs(save_data, exist_ok=True)
         config = config["callbacks"]
     else:
         return []
@@ -58,7 +60,8 @@ def get_callbacks(config: Dict[str, str], path_extend=False) -> List[Callback]:
     if "LearningRateScheduler" in config:
         drop = config["LearningRateScheduler"]["drop"]
         epochs_drop = config["LearningRateScheduler"]["epochs_drop"]
-        f = partial(step_decay, drop=drop, epochs_drop=epochs_drop)
+        f = partial(step_decay, drop=drop, epochs_drop=epochs_drop,
+                    init_lr=config["LearningRateScheduler"].get("init_lr", 0.001))
         callbacks.append(LearningRateScheduler(f))
         callbacks.append(LearningRateTracker())
 
@@ -66,26 +69,34 @@ def get_callbacks(config: Dict[str, str], path_extend=False) -> List[Callback]:
 
 
 def step_decay(epoch, drop=0.2, epochs_drop=5.0, init_lr=0.001):
+    if epochs_drop <= 0:
+        raise ValueError("epochs_drop must be positive")
     lrate = init_lr * math.pow(drop, math.floor((1 + epoch) / epochs_drop))
     return lrate
 
 
 class LearningRateTracker(Callback):
     def on_epoch_end(self, epoch: int, logs: Dict[str, float] = None) -> None:
-        logs = logs or {}
-        logs["lr"] = K.get_value(self.model.optimizer.lr)
+        if logs is None:
+            logs = {}
+        logs["lr"] = float(keras.ops.convert_to_numpy(self.model.optimizer.learning_rate))
 
 @keras.saving.register_keras_serializable()
 class ReportEpoch(keras.callbacks.Callback):
-    def __init__(self, epoch_var):
-        self.epoch_var = epoch_var
+    def __init__(self, epoch_var=None, initial_epoch=1.0):
+        super().__init__()
+        self.epoch_var = keras.Variable(initial_epoch, trainable=False) if epoch_var is None else epoch_var
 
-    def on_epoch_end(self, epoch, logs={}):
-        self.epoch_var += 1
+    def on_epoch_end(self, epoch, logs=None):
+        self.epoch_var.assign_add(1)
 
     def get_config(self):
 
-        return {}
+        return {"initial_epoch": float(keras.ops.convert_to_numpy(self.epoch_var))}
+
+    @classmethod
+    def from_config(cls, config):
+        return cls(**config)
 
 
 class MetricsCallback(keras.callbacks.Callback):
@@ -96,42 +107,53 @@ class MetricsCallback(keras.callbacks.Callback):
         self.name = name
         self.use_uncertainty = use_uncertainty
 
+        if not isinstance(n_bins, (int, np.integer)) or n_bins < 1:
+            raise ValueError("n_bins must be a positive integer")
         bin_boundaries = np.linspace(0, 1, n_bins + 1)
         self.bin_lowers = bin_boundaries[:-1]
         self.bin_uppers = bin_boundaries[1:]
 
-    def on_epoch_end(self, epoch, logs={}):
+    def on_epoch_end(self, epoch, logs=None):
+        if logs is None:
+            logs = {}
+        options = {"verbose": 0}
+        if "return_uncertainties" in inspect.signature(self.model.predict).parameters:
+            options["return_uncertainties"] = self.use_uncertainty
+        output = self.model.predict(self.x, **options)
         if self.use_uncertainty:
-            pred_probs, _, _, _ = self.model.predict(self.x, return_uncertainties=True)
-            pred_probs = pred_probs.numpy()
-        else:
-            pred_probs = np.asarray(self.model.predict(self.x, return_uncertainties=False))
+            if isinstance(output, (tuple, list)) and len(output) == 4:
+                output = output[0]
+            else:
+                alpha = np.maximum(keras.ops.convert_to_numpy(output), 0) + 1
+                output = alpha / alpha.sum(axis=-1, keepdims=True)
+        pred_probs = keras.ops.convert_to_numpy(output)
         logs[f"{self.name}_csi"] = self.mean_csi(pred_probs)
         true_labels = np.argmax(self.y, 1)
         pred_labels = np.argmax(pred_probs, 1)
         prec, recall, f1, _ = precision_recall_fscore_support(
-            true_labels, pred_labels, average="macro"
-        )
+            true_labels, pred_labels, average="macro", zero_division=0)
         logs[f"{self.name}_ave_acc"] = self.ave_acc(true_labels, pred_labels)
         logs[f"{self.name}_prec"] = prec
         logs[f"{self.name}_recall"] = recall
         logs[f"{self.name}_f1"] = f1
-        logs[f"{self.name}_auc"] = roc_auc_score(self.y, pred_probs, multi_class='ovr')
-        return
+        try:
+            logs[f"{self.name}_auc"] = roc_auc_score(self.y, pred_probs, multi_class="ovr")
+        except ValueError:
+            logs[f"{self.name}_auc"] = np.nan
 
     def mean_csi(self, pred_probs):
-        pred_labels = np.argmax(pred_probs, 1)
-        confidences = np.take_along_axis(pred_probs, pred_labels[:, None], axis=1)
-        rocs = []
-        for i in range(pred_probs.shape[1]):
-            forecasts = confidences.copy()
-            obs = np.where(np.argmax(self.y, 1) == i, 1, 0)
-            roc = DistributedROC(
-                thresholds=np.arange(0.0, 1.01, 0.01), obs_threshold=0.5
-            )
-            roc.update(forecasts[:, 0], obs)
-            rocs.append(roc.max_csi())
-        return np.mean(rocs)
+        scores = []
+        labels = np.argmax(self.y, axis=1)
+        for index in range(pred_probs.shape[1]):
+            observed = labels == index
+            class_scores = []
+            for threshold in np.arange(0, 1.01, .01):
+                forecast = pred_probs[:, index] >= threshold
+                denominator = np.count_nonzero(forecast | observed)
+                if denominator:
+                    class_scores.append(np.count_nonzero(forecast & observed) / denominator)
+            scores.append(max(class_scores) if class_scores else np.nan)
+        return float(np.mean(scores))
 
     def ave_acc(self, true_labels, pred_labels):
         return np.mean(
@@ -145,53 +167,24 @@ class MetricsCallback(keras.callbacks.Callback):
         )
 
     def mce(self, true_labels, pred_probs):
-        confidences = np.expand_dims(np.max(pred_probs, 1), -1)
-        predictions = np.expand_dims(np.argmax(pred_probs, 1), -1)
-        accuracies = predictions == true_labels
-
-        mce = 0.0
-        for bin_lower, bin_upper in zip(self.bin_lowers, self.bin_uppers):
-            # Calculated |confidence - accuracy| in each bin
-            in_bin = (confidences > bin_lower).astype(float) * (
-                    confidences <= bin_upper
-            ).astype(float)
-            prop_in_bin = in_bin.astype(float).mean()
-            in_bin = in_bin.squeeze(-1).astype(int)
-            if prop_in_bin > 0:
-                try:
-                    max_accuracy_in_bin = accuracies[in_bin].astype(float).max()
-                    max_confidence_in_bin = confidences[in_bin].max()
-                    max_calibration = np.abs(max_confidence_in_bin - max_accuracy_in_bin)
-                    mce = max(mce, max_calibration)
-                except:
-                    pass
-
-        if mce == 0.0:
-            return self.bin_lowers.shape[0]
-        else:
-            return mce
+        gaps, _ = self._calibration_bins(true_labels, pred_probs)
+        return max(gaps, default=0.0)
 
     def ece(self, true_labels, pred_probs):
-        confidences = np.expand_dims(np.max(pred_probs, 1), -1)
-        predictions = np.expand_dims(np.argmax(pred_probs, 1), -1)
-        accuracies = predictions == true_labels
-        ece = []
-        for bin_lower, bin_upper in zip(self.bin_lowers, self.bin_uppers):
-            # Calculated |confidence - accuracy| in each bin
-            in_bin = (confidences > bin_lower).astype(float) * (
-                    confidences <= bin_upper
-            ).astype(float)
-            prop_in_bin = in_bin.astype(float).mean()
-            in_bin = in_bin.squeeze(-1).astype(int)
-            if prop_in_bin > 0:
-                try:
-                    accuracy_in_bin = accuracies[in_bin].astype(float).mean()
-                    avg_confidence_in_bin = confidences[in_bin].mean()
-                    avg_calibration = (
-                            np.abs(avg_confidence_in_bin - accuracy_in_bin) * prop_in_bin
-                    )
-                    ece.append(avg_calibration)
-                except:
-                    pass
-        mean = np.mean(ece) if np.isfinite(np.mean(ece)) else self.bin_lowers.shape[0]
-        return mean
+        gaps, proportions = self._calibration_bins(true_labels, pred_probs)
+        return float(np.dot(gaps, proportions))
+
+    def _calibration_bins(self, true_labels, pred_probs):
+        probabilities = np.asarray(pred_probs)
+        labels = np.asarray(true_labels).reshape(-1)
+        if probabilities.ndim != 2 or len(labels) != len(probabilities):
+            raise ValueError("Expected (samples, classes) probabilities and one label per sample")
+        confidence = probabilities.max(axis=1)
+        correct = probabilities.argmax(axis=1) == labels
+        gaps, proportions = [], []
+        for index, (lower, upper) in enumerate(zip(self.bin_lowers, self.bin_uppers)):
+            mask = (confidence <= upper) & ((confidence >= lower) if index == 0 else (confidence > lower))
+            if np.any(mask):
+                gaps.append(float(abs(confidence[mask].mean() - correct[mask].mean())))
+                proportions.append(float(mask.mean()))
+        return gaps, proportions

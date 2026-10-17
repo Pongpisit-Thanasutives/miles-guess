@@ -1,53 +1,53 @@
 [build-system]
-requires = ["setuptools", "setuptools-scm"]
+requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "miles-guess"
 authors = [{name = "University Corporation for Atmospheric Research", email = "milescore@ucar.edu"}]
 readme = "README.md"
-license = {file = "LICENSE"}
+license-files = ["LICENSE"]
 dynamic = ["version"]
-requires-python = ">=3.8"
+requires-python = ">=3.11"
 dependencies = [
-    "numpy",
-    "scipy",
-    "matplotlib",
-    "pandas",
-    "xarray",
-    "keras",
-    "scikit-learn",
-    "netcdf4",
-    "pyyaml",
-    "tqdm",
-    "sphinx",
-    "numba",
-    "properscoring",
-    "pyarrow",
-    "imbalanced-learn",
-    "bridgescaler",
-    "echo-opt",
-    "hagelslag",
-    "jupyter",
-    "nbsphinx",
-    "myst_parser",
-    "sphinx_book_theme",
-    "hagelslag",
+    "numpy>=2.0,<3",
+    "scipy>=1.13,<2",
+    "matplotlib>=3.9,<4",
+    "pandas>=2.2.2,<3",
+    "scikit-learn>=1.4.2,<2",
+    "pyyaml>=6.0",
+    "tqdm>=4.66",
+    "properscoring>=0.1",
     ]
 
 [project.optional-dependencies]
-tensorflow = ["tensorflow>=2.16.0"]
+keras = ["keras>=3.8,<4"]
+tensorflow = ["keras>=3.8,<4", "tensorflow>=2.18,<3"]
 
-tensorflow_gpu = ["tensorflow[and-cuda]>=2.16.0"]
+tensorflow_gpu = ["keras>=3.8,<4", "tensorflow[and-cuda]>=2.18,<3"]
 
-torch = ["torch", "safetensors"]
+torch = ["torch>=2.5.1,<3", "safetensors>=0.4.3"]
 
-jax = ["jax"]
+jax = ["keras>=3.8,<4", "jax>=0.4.35"]
+data = ["xarray>=2024.6", "netCDF4>=1.7", "pyarrow>=16", "bridgescaler>=0.8"]
+tuning = ["optuna>=3.6", "echo-opt", "wandb"]
+geospatial = ["cartopy>=0.23", "hagelslag"]
+legacy = ["imbalanced-learn>=0.12.3", "hagelslag"]
+notebooks = ["jupyter>=1.0", "jupyterlab>=4"]
+docs = ["sphinx>=7", "nbsphinx>=0.9", "myst_parser>=3", "sphinx_book_theme>=1"]
+test = ["pytest>=8", "build>=1.2"]
 
 
 
 [tool.setuptools]
-packages = ["mlguess", "mlguess.keras", "mlguess.torch"]
+include-package-data = false
+
+[tool.setuptools.packages.find]
+include = ["mlguess*"]
+exclude = ["mlguess.tests*"]
+
+[tool.setuptools.package-data]
+mlguess = ["VERSION"]
 
 [tool.setuptools.dynamic]
 version = {file = "mlguess/VERSION"}
@@ -55,3 +55,12 @@ readme = {file = ["README.md"]}
 
 [tool.ruff]
 lint.pydocstyle.convention = "google"
+
+[tool.pytest.ini_options]
+testpaths = ["mlguess/tests"]
+addopts = "-ra"
+
+[tool.coverage.run]
+branch = true
+source = ["mlguess", "applications"]
+omit = ["mlguess/tests/*"]

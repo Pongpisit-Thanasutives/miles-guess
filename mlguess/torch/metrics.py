@@ -1,6 +1,5 @@
 import numpy as np
 from sklearn.metrics import precision_recall_fscore_support, roc_auc_score
-from hagelslag.evaluation.ProbabilityMetrics import DistributedROC
 
 
 class MetricsCalculator:
@@ -35,6 +34,8 @@ class MetricsCalculator:
             n_bins (int, optional): Number of bins for MCE and ECE calculations. Default is 10.
             use_uncertainty (bool, optional): If True, the model's uncertainty is used in predictions. Default is False.
         """
+        if not isinstance(n_bins, (int, np.integer)) or n_bins < 1:
+            raise ValueError("n_bins must be at least 1")
         self.use_uncertainty = use_uncertainty
         bin_boundaries = np.linspace(0, 1, n_bins + 1)
         self.bin_lowers = bin_boundaries[:-1]
@@ -54,8 +55,11 @@ class MetricsCalculator:
         """
         logs = {}
 
-        y_true = y_true.detach().cpu().numpy()
-        y_pred = y_pred.detach().cpu().numpy()
+        y_true = y_true.detach().cpu().numpy() if hasattr(y_true, "detach") else np.asarray(y_true)
+        y_pred = y_pred.detach().cpu().numpy() if hasattr(y_pred, "detach") else np.asarray(y_pred)
+        self._validate_probabilities(y_pred)
+        if y_true.shape != y_pred.shape or not np.all((y_true == 0) | (y_true == 1)) or not np.all(y_true.sum(axis=1) == 1):
+            raise ValueError("Targets must be one-hot encoded with the same shape as probabilities")
 
         true_labels = np.argmax(y_true, axis=1)
         pred_probs = y_pred if self.use_uncertainty else y_pred
@@ -63,7 +67,7 @@ class MetricsCalculator:
 
         logs[f"{split}_csi"] = self.mean_csi(y_true, pred_probs)
         prec, recall, f1, _ = precision_recall_fscore_support(
-            true_labels, pred_labels, average="macro"
+            true_labels, pred_labels, average="macro", zero_division=0
         )
         logs[f"{split}_ave_acc"] = self.ave_acc(true_labels, pred_labels)
         logs[f"{split}_prec"] = prec
@@ -73,7 +77,7 @@ class MetricsCalculator:
             logs[f"{split}_auc"] = roc_auc_score(y_true, pred_probs, multi_class='ovr')
         except ValueError:
             # AUC computation might fail if there's only one class in either true labels or predicted labels
-            logs[f"{split}_auc"] = None
+            logs[f"{split}_auc"] = np.nan
 
         return logs
 
@@ -87,18 +91,31 @@ class MetricsCalculator:
         Returns:
             float: The mean Critical Success Index.
         """
-        pred_labels = np.argmax(pred_probs, 1)
-        confidences = np.take_along_axis(pred_probs, pred_labels[:, None], axis=1)
-        rocs = []
+        # Same threshold grid and TP/(TP+FP+FN) statistic as DistributedROC.
+        # Each one-vs-rest event must use its own class probability, not the
+        # maximum probability assigned to any class.
+        pred_probs = np.asarray(pred_probs)
+        y = np.asarray(y)
+        self._validate_probabilities(pred_probs)
+        if y.shape != pred_probs.shape or not np.all((y == 0) | (y == 1)) or not np.all(y.sum(axis=1) == 1):
+            raise ValueError("Targets must be one-hot encoded with the same shape as probabilities")
+        true_labels = np.argmax(y, axis=1)
+        thresholds = np.arange(0.0, 1.01, 0.01)
+        scores = []
         for i in range(pred_probs.shape[1]):
-            forecasts = confidences.copy()
-            obs = np.where(np.argmax(y, 1) == i, 1, 0)
-            roc = DistributedROC(
-                thresholds=np.arange(0.0, 1.01, 0.01), obs_threshold=0.5
-            )
-            roc.update(forecasts[:, 0], obs)
-            rocs.append(roc.max_csi())
-        return np.mean(rocs)
+            positive = true_labels == i
+            forecasts = np.asarray(pred_probs)[:, i]
+            class_scores = []
+            for threshold in thresholds:
+                predicted = forecasts >= threshold
+                tp = np.count_nonzero(predicted & positive)
+                fp = np.count_nonzero(predicted & ~positive)
+                fn = np.count_nonzero((forecasts < threshold) & positive)
+                denominator = tp + fp + fn
+                if denominator:
+                    class_scores.append(tp / denominator)
+            scores.append(max(class_scores) if class_scores else np.nan)
+        return np.mean(scores)
 
     def ave_acc(self, true_labels, pred_labels):
         """Computes the average accuracy for the true and predicted labels.
@@ -110,6 +127,9 @@ class MetricsCalculator:
         Returns:
             float: The average accuracy.
         """
+        true_labels, pred_labels = np.asarray(true_labels), np.asarray(pred_labels)
+        if true_labels.ndim != 1 or true_labels.size == 0 or pred_labels.shape != true_labels.shape:
+            raise ValueError("Provide matching nonempty label vectors")
         return np.mean(
             [
                 (
@@ -130,27 +150,8 @@ class MetricsCalculator:
         Returns:
             float: The Maximum Calibration Error.
         """
-        confidences = np.expand_dims(np.max(pred_probs, 1), -1)
-        predictions = np.expand_dims(np.argmax(pred_probs, 1), -1)
-        accuracies = predictions == true_labels
-
-        mce = 0.0
-        for bin_lower, bin_upper in zip(self.bin_lowers, self.bin_uppers):
-            in_bin = (confidences > bin_lower).astype(float) * (
-                    confidences <= bin_upper
-            ).astype(float)
-            prop_in_bin = in_bin.astype(float).mean()
-            in_bin = in_bin.squeeze(-1).astype(int)
-            if prop_in_bin > 0:
-                try:
-                    max_accuracy_in_bin = accuracies[in_bin].astype(float).max()
-                    max_confidence_in_bin = confidences[in_bin].max()
-                    max_calibration = np.abs(max_confidence_in_bin - max_accuracy_in_bin)
-                    mce = max(mce, max_calibration)
-                except ValueError:
-                    pass
-
-        return mce if mce != 0.0 else self.bin_lowers.shape[0]
+        errors, _ = self._calibration_bins(true_labels, pred_probs)
+        return float(np.max(errors)) if errors else 0.0
 
     def ece(self, true_labels, pred_probs):
         """Computes the Expected Calibration Error (ECE) for the predicted probabilities.
@@ -162,25 +163,33 @@ class MetricsCalculator:
         Returns:
             float: The Expected Calibration Error.
         """
-        confidences = np.expand_dims(np.max(pred_probs, 1), -1)
-        predictions = np.expand_dims(np.argmax(pred_probs, 1), -1)
-        accuracies = predictions == true_labels
-        ece = []
-        for bin_lower, bin_upper in zip(self.bin_lowers, self.bin_uppers):
-            in_bin = (confidences > bin_lower).astype(float) * (
-                    confidences <= bin_upper
-            ).astype(float)
-            prop_in_bin = in_bin.astype(float).mean()
-            in_bin = in_bin.squeeze(-1).astype(int)
-            if prop_in_bin > 0:
-                try:
-                    accuracy_in_bin = accuracies[in_bin].astype(float).mean()
-                    avg_confidence_in_bin = confidences[in_bin].mean()
-                    avg_calibration = (
-                            np.abs(avg_confidence_in_bin - accuracy_in_bin) * prop_in_bin
-                    )
-                    ece.append(avg_calibration)
-                except ValueError:
-                    pass
-        mean_ece = np.mean(ece) if np.isfinite(np.mean(ece)) else self.bin_lowers.shape[0]
-        return mean_ece
+        errors, weights = self._calibration_bins(true_labels, pred_probs)
+        return float(np.dot(errors, weights))
+
+    def _calibration_bins(self, true_labels, pred_probs):
+        """Return absolute mean calibration gaps and fractions in nonempty bins."""
+        pred_probs = np.asarray(pred_probs)
+        self._validate_probabilities(pred_probs)
+        labels = np.asarray(true_labels)
+        if labels.ndim == 2 and labels.shape[1] == 1:
+            labels = labels[:, 0]
+        if labels.ndim != 1 or len(labels) != len(pred_probs) or not np.isin(labels, np.arange(pred_probs.shape[1])).all():
+            raise ValueError("Expected class probabilities (samples, classes) and one label per sample")
+        confidences = np.max(pred_probs, axis=1)
+        accuracies = np.argmax(pred_probs, axis=1) == labels
+        errors, weights = [], []
+        for index, (lower, upper) in enumerate(zip(self.bin_lowers, self.bin_uppers)):
+            in_bin = (confidences <= upper) & (
+                (confidences >= lower) if index == 0 else (confidences > lower)
+            )
+            if np.any(in_bin):
+                errors.append(abs(confidences[in_bin].mean() - accuracies[in_bin].mean()))
+                weights.append(in_bin.mean())
+        return errors, weights
+
+    @staticmethod
+    def _validate_probabilities(probabilities):
+        if probabilities.ndim != 2 or probabilities.shape[0] == 0 or probabilities.shape[1] < 2:
+            raise ValueError("Provide a nonempty (samples, classes) probability matrix")
+        if not np.isfinite(probabilities).all() or np.any((probabilities < 0) | (probabilities > 1)) or not np.allclose(probabilities.sum(axis=1), 1, rtol=1e-5, atol=1e-7):
+            raise ValueError("Predictions must be finite nonnegative probabilities summing to one")

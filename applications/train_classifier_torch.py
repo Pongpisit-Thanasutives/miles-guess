@@ -1,84 +1,46 @@
-import warnings
 import os
 import sys
 import copy
 import yaml
-import optuna
-import shutil
 import logging
-import importlib
 import numpy as np
 import pandas as pd
 
 from pathlib import Path
 from argparse import ArgumentParser
-from echo.src.base_objective import BaseObjective
 from collections import defaultdict
 
 import torch
-import torch.distributed as dist
-from torch.cuda.amp import GradScaler
 from torch.utils.data.distributed import DistributedSampler
-from torch.distributed.fsdp.sharded_grad_scaler import ShardedGradScaler
 
 from mlguess.torch.distributed import distributed_model_wrapper
 from mlguess.torch.scheduler import load_scheduler
-from mlguess.pbs import launch_pbs_jobs, launch_distributed_jobs
-from mlguess.torch.checkpoint import (
-    FSDPOptimizerWrapper,
-    TorchFSDPCheckpointIO
-)
 from mlguess.torch.trainer_classifier import Trainer
 from mlguess.torch.class_losses import EDLDigammaLoss
 from mlguess.torch.models import seed_everything, CategoricalDNN
-from mlguess.keras.data import load_ptype_uq, preprocess_data
 from mlguess.torch.metrics import MetricsCalculator
 from torch.utils.data import TensorDataset
 
-warnings.filterwarnings("ignore")
-
-os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
-os.environ["OMP_NUM_THREADS"] = "1"
-os.environ["MKL_NUM_THREADS"] = "1"
-
-
-# https://stackoverflow.com/questions/59129812/how-to-avoid-cuda-out-of-memory-in-pytorch
-os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
-
-
-def setup(rank, world_size, mode):
-    """
-    Initialize the process group for distributed training.
-
-    Args:
-        rank (int): The rank of the current process in the distributed training.
-        world_size (int): The total number of processes involved in distributed training.
-        mode (str): The mode of training (e.g., 'fsdp' or 'ddp').
-
-    Logs:
-        Information about the distributed training setup.
-    """
-
-    logging.info(f"Running {mode.upper()} on rank {rank} with world_size {world_size}.")
-    dist.init_process_group("nccl", rank=rank, world_size=world_size)
-
-
-def import_class_from_path(class_name, file_path):
-    """
-    Import a class from a file path.
-
-    Args:
-        class_name (str): The name of the class to import.
-        file_path (str): The file path of the module containing the class.
-
-    Returns:
-        type: The imported class.
-    """
-
-    spec = importlib.util.spec_from_file_location(class_name, file_path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return getattr(module, class_name)
+if __package__:
+    from ._common import (
+        resolve_device,
+        validate_application_run,
+        setup,
+        import_class_from_path,
+        cleanup_distributed,
+        make_grad_scaler,
+        load_objective,
+    )
+else:
+    from _common import (
+        resolve_device,
+        validate_application_run,
+        setup,
+        import_class_from_path,
+        cleanup_distributed,
+        make_grad_scaler,
+        load_objective,
+    )
 
 
 def load_dataset_and_sampler(conf, world_size, rank, split, seed=42, return_df=False):
@@ -99,6 +61,8 @@ def load_dataset_and_sampler(conf, world_size, rank, split, seed=42, return_df=F
         Information about the dataset and sampler loaded.
     """
 
+    from mlguess.keras.data import load_ptype_uq, preprocess_data
+
     # Z-score
     # torch_dataset = import_class_from_path(conf["data"]["dataset_name"], conf["data"]["dataset_path"])
     # dataset = torch_dataset(conf, split='train' if is_train else 'val')
@@ -112,16 +76,14 @@ def load_dataset_and_sampler(conf, world_size, rank, split, seed=42, return_df=F
     # Load data
     _conf = copy.deepcopy(conf)
     _conf.update(conf["data"])
-    data = load_ptype_uq(_conf, data_split=0, verbose=1, drop_mixed=False)
+    data = load_ptype_uq(_conf, data_split=_conf.get("data_split", 0), verbose=1, drop_mixed=False)
 
     # check if we should scale the input data by groups
     scale_groups = [] if "scale_groups" not in conf["data"] else conf["data"]["scale_groups"]
     groups = [list(conf["data"][g]) for g in scale_groups]
-    leftovers = list(
-        set(input_features)
-        - set([row for group in scale_groups for row in conf["data"][group]])
-    )
-    if len(leftovers):
+    grouped_features = {feature for group in groups for feature in group}
+    leftovers = [feature for feature in input_features if feature not in grouped_features]
+    if groups and leftovers:
         groups.append(leftovers)
     # scale the data
     scaled_data, scalers = preprocess_data(
@@ -130,7 +92,8 @@ def load_dataset_and_sampler(conf, world_size, rank, split, seed=42, return_df=F
         output_features,
         scaler_type=conf["data"]["scaler_type"],
         encoder_type="onehot",
-        groups=[],
+        groups=groups,
+        seed=conf.get("seed", seed),
     )
 
     X = torch.FloatTensor(scaled_data[f"{split}_x"].values)
@@ -146,7 +109,7 @@ def load_dataset_and_sampler(conf, world_size, rank, split, seed=42, return_df=F
         rank=rank,
         seed=seed,
         shuffle=is_train,
-        drop_last=(not is_train)
+        drop_last=False
     )
     logging.info(f"Loaded a {split} torch dataset, and a distributed sampler")
 
@@ -170,13 +133,15 @@ def load_model_states_and_optimizer(conf, model, device):
     """
 
     # convert $USER to the actual user name
-    conf['save_loc'] = save_loc = os.path.expandvars(conf['save_loc'])
+    conf['save_loc'] = save_loc = os.path.expanduser(os.path.expandvars(conf['save_loc']))
+
+    if conf["trainer"]["mode"] == "fsdp":
+        from mlguess.torch.checkpoint import FSDPOptimizerWrapper, TorchFSDPCheckpointIO
 
     # training hyperparameters
     start_epoch = conf['trainer']['start_epoch']
     learning_rate = float(conf['trainer']['learning_rate'])
     weight_decay = float(conf['trainer']['weight_decay'])
-    amp = conf['trainer']['amp']
 
     # load weights falg
     load_weights = False if 'load_weights' not in conf['trainer'] else conf['trainer']['load_weights']
@@ -187,12 +152,12 @@ def load_model_states_and_optimizer(conf, model, device):
         if conf["trainer"]["mode"] == "fsdp":
             optimizer = FSDPOptimizerWrapper(optimizer, model)
         scheduler = load_scheduler(optimizer, conf)
-        scaler = ShardedGradScaler(enabled=amp) if conf["trainer"]["mode"] == "fsdp" else GradScaler(enabled=amp)
+        scaler = make_grad_scaler(conf, device)
 
     # load optimizer and grad scaler states
     else:
         ckpt = os.path.join(save_loc, "checkpoint.pt")
-        checkpoint = torch.load(ckpt, map_location=device)
+        checkpoint = torch.load(ckpt, map_location=device, weights_only=True)
 
         # FSDP checkpoint settings
         if conf["trainer"]["mode"] == "fsdp":
@@ -217,12 +182,13 @@ def load_model_states_and_optimizer(conf, model, device):
                 optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
 
         scheduler = load_scheduler(optimizer, conf)
-        scaler = ShardedGradScaler(enabled=amp) if conf["trainer"]["mode"] == "fsdp" else GradScaler(enabled=amp)
+        scaler = make_grad_scaler(conf, device)
 
-        if scheduler is not None:
+        if scheduler is not None and checkpoint.get('scheduler_state_dict') is not None:
             scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
 
-        scaler.load_state_dict(checkpoint['scaler_state_dict'])
+        if scaler.is_enabled() and checkpoint.get('scaler_state_dict'):
+            scaler.load_state_dict(checkpoint['scaler_state_dict'])
 
     # Enable updating the lr if not using a policy
     if (conf["trainer"]["update_learning_rate"] if "update_learning_rate" in conf["trainer"] else False):
@@ -249,8 +215,10 @@ def main(rank, world_size, conf, trial=False):
         Information about setup, dataset loading, model wrapping, and training process.
     """
 
+    validate_application_run(conf, world_size)
+
     # convert $USER to the actual user name
-    conf['save_loc'] = os.path.expandvars(conf['save_loc'])
+    conf['save_loc'] = os.path.expanduser(os.path.expandvars(conf['save_loc']))
     # Assuming `conf` is a dictionary containing your configuration
     trainer_config = conf.get('trainer', {})
     # Get KL loss coefficient with a default value of 10 if not present
@@ -258,15 +226,13 @@ def main(rank, world_size, conf, trial=False):
     # Get uncertainty with a default value of False if not present
     uncertainty = trainer_config.get('uncertainty', False)
     # Number of class labels present
-    num_classes = conf["model"]["output_size"]
+    outputs = conf["model"]["output_size"]
+    num_classes = len(outputs) if isinstance(outputs, (list, tuple)) else outputs
 
+    conf["trainer"].setdefault("mode", "none")
+    device = resolve_device(conf, rank)
     if conf["trainer"]["mode"] in ["fsdp", "ddp"]:
-        setup(rank, world_size, conf["trainer"]["mode"])
-
-    # infer device id from rank
-
-    device = torch.device(f"cuda:{rank % torch.cuda.device_count()}") if torch.cuda.is_available() else torch.device("cpu")
-    torch.cuda.set_device(rank % torch.cuda.device_count())
+        setup(rank, world_size, conf["trainer"]["mode"], device)
 
     # Config settings
     seed = 1000 if "seed" not in conf else conf["seed"]
@@ -274,7 +240,7 @@ def main(rank, world_size, conf, trial=False):
 
     train_batch_size = conf['trainer']['train_batch_size']
     valid_batch_size = conf['trainer']['valid_batch_size']
-    thread_workers = conf['trainer']['thread_workers']
+    thread_workers = conf['trainer'].get('thread_workers', 0)
     valid_thread_workers = conf['trainer']['valid_thread_workers'] if 'valid_thread_workers' in conf['trainer'] else thread_workers
 
     # load dataset and sampler
@@ -290,10 +256,10 @@ def main(rank, world_size, conf, trial=False):
         batch_size=train_batch_size,
         shuffle=False,  # sampler handles shuffling
         sampler=train_sampler,
-        pin_memory=True,
+        pin_memory=(device.type == "cuda"),
         persistent_workers=True if thread_workers > 0 else False,
         num_workers=thread_workers,
-        drop_last=True
+        drop_last=(len(train_sampler) >= train_batch_size)
     )
 
     valid_loader = torch.utils.data.DataLoader(
@@ -301,7 +267,7 @@ def main(rank, world_size, conf, trial=False):
         batch_size=valid_batch_size,
         shuffle=False,
         sampler=valid_sampler,
-        pin_memory=True,
+        pin_memory=(device.type == "cuda"),
         num_workers=valid_thread_workers,
         drop_last=False
     )
@@ -311,7 +277,7 @@ def main(rank, world_size, conf, trial=False):
         batch_size=valid_batch_size,
         shuffle=False,
         sampler=test_sampler,
-        pin_memory=True,
+        pin_memory=(device.type == "cuda"),
         num_workers=valid_thread_workers,
         drop_last=False
     )
@@ -347,13 +313,14 @@ def main(rank, world_size, conf, trial=False):
         model,
         rank,
         module=(conf["trainer"]["mode"] == "ddp"),
-        uncertainty=uncertainty
+        uncertainty=uncertainty,
+        device=device,
     )
 
     # Fit the model
     classifier_metrics = MetricsCalculator(use_uncertainty=uncertainty)
 
-    result = trainer.fit(
+    fit_result = trainer.fit(
         conf,
         train_loader,
         valid_loader,
@@ -366,17 +333,25 @@ def main(rank, world_size, conf, trial=False):
         trial=trial
     )
 
+    if trial:
+        if conf["trainer"]["mode"] in ["fsdp", "ddp"]:
+            cleanup_distributed()
+        return fit_result
+
     # Predict with the model
     logging.info("Predicting on the data splits with the trained model. This may take some time")
 
-    # train loader needs reinitialized so we do not drop last batch
-    # valid and test we did not do that since doesnt affect gradient
+    # Predict in the original DataFrame order, without the training shuffle.
+    train_sampler = DistributedSampler(
+        train_dataset, num_replicas=world_size, rank=rank,
+        shuffle=False, drop_last=False,
+    )
     train_loader = torch.utils.data.DataLoader(
         train_dataset,
         batch_size=train_batch_size,
         shuffle=False,  # sampler handles shuffling
         sampler=train_sampler,
-        pin_memory=True,
+        pin_memory=(device.type == "cuda"),
         persistent_workers=True if thread_workers > 0 else False,
         num_workers=thread_workers,
         drop_last=False
@@ -406,11 +381,12 @@ def main(rank, world_size, conf, trial=False):
         # Add predictions back to the DataFrame
         df = data[split].copy()
 
-        df["u"] = u
         df[[f"y_pred_prob_{label}" for label in range(num_classes)]] = mu
-        df[[f"aleatorc_{label}" for label in range(num_classes)]] = aleatoric
-        df[[f"epistemic_{label}" for label in range(num_classes)]] = epistemic
-        df[[f"total_{label}" for label in range(num_classes)]] = total
+        if uncertainty:
+            df["u"] = u
+            df[[f"aleatorc_{label}" for label in range(num_classes)]] = aleatoric
+            df[[f"epistemic_{label}" for label in range(num_classes)]] = epistemic
+            df[[f"total_{label}" for label in range(num_classes)]] = total
 
         for key, values in metrics.items():
             if isinstance(values, list):
@@ -422,10 +398,12 @@ def main(rank, world_size, conf, trial=False):
     mets = pd.DataFrame.from_dict(all_results, orient='index')
     mets.to_csv(os.path.join(conf['save_loc'], "metrics.csv"))
 
+    if conf["trainer"]["mode"] in ["fsdp", "ddp"]:
+        cleanup_distributed()
     return result
 
 
-class Objective(BaseObjective):
+class _ObjectiveMixin:
     """
     Objective class for hyperparameter tuning with Optuna.
 
@@ -434,11 +412,6 @@ class Objective(BaseObjective):
         metric (str, optional): The metric to optimize. Defaults to "val_loss".
         device (str, optional): The device to use. Defaults to "cpu".
     """
-
-    def __init__(self, config, metric="val_loss", device="cpu"):
-
-        # Initialize the base class
-        BaseObjective.__init__(self, config, metric, device)
 
     def train(self, trial, conf):
         """
@@ -457,23 +430,25 @@ class Objective(BaseObjective):
 
         conf['trainer']['train_batch_size'] = conf['data']['batch_size']
         conf['trainer']['valid_batch_size'] = conf['data']['batch_size']
-        conf['valid_loss']['coef'] = conf['train_loss']['coef']
 
         try:
             return main(0, 1, conf, trial=trial)
 
         except Exception as E:
-            if "CUDA" in str(E) or "non-singleton" in str(E):
+            if "CUDA" in str(E):
+                import optuna
                 logging.warning(
                     f"Pruning trial {trial.number} due to CUDA memory overflow: {str(E)}."
                 )
                 raise optuna.TrialPruned()
             elif "non-singleton" in str(E):
+                import optuna
                 logging.warning(
                     f"Pruning trial {trial.number} due to shape mismatch: {str(E)}."
                 )
                 raise optuna.TrialPruned()
-            elif "infinity" in str(E) or "nan" in str(E):
+            elif "infinity" in str(E).lower() or "nan" in str(E).lower():
+                import optuna
                 logging.warning(
                     f"Pruning trial {trial.number} due to encountering a nan in metrics calculations: {str(E)}."
                 )
@@ -483,16 +458,20 @@ class Objective(BaseObjective):
                 raise E
 
 
+def __getattr__(name):
+    return load_objective(name, globals(), _ObjectiveMixin)
+
+
 if __name__ == "__main__":
 
-    description = "Train a segmengation model on a hologram data set"
+    description = "Train a PyTorch classifier"
     parser = ArgumentParser(description=description)
     parser.add_argument(
         "-c",
         "--config",
         dest="model_config",
         type=str,
-        default=False,
+        required=True,
         help="Path to the model configuration (yml) containing your inputs.",
     )
     parser.add_argument(
@@ -506,14 +485,17 @@ if __name__ == "__main__":
         "-m",
         "--mode",
         type=str,
-        default=0,
+        default=None,
+        choices=["none", "ddp", "fsdp"],
         help="Update the config to use none, DDP, or FSDP",
     )
+    parser.add_argument("--device", choices=["cpu", "cuda", "auto"], help="Override trainer.device (CPU is supported on macOS and Windows).")
     args = parser.parse_args()
     args_dict = vars(args)
     config = args_dict.pop("model_config")
     launch = int(args_dict.pop("launch"))
-    mode = str(args_dict.pop("mode"))
+    mode = args_dict.pop("mode")
+    device_override = args_dict.pop("device")
 
     # Set up logger to print stuff
     root = logging.getLogger()
@@ -528,22 +510,30 @@ if __name__ == "__main__":
 
     # Load the configuration and get the relevant variables
     with open(config) as cf:
-        conf = yaml.load(cf, Loader=yaml.FullLoader)
+        conf = yaml.safe_load(cf)
 
     # Create directories if they do not exist and copy yml file
-    save_loc = os.path.expandvars(conf["save_loc"])
+    save_loc = os.path.expanduser(os.path.expandvars(conf["save_loc"]))
     os.makedirs(save_loc, exist_ok=True)
 
-    if not os.path.exists(os.path.join(save_loc, "model.yml")):
-        shutil.copy(config, os.path.join(save_loc, "model.yml"))
-
     # Update config using override options
+    conf["trainer"].setdefault("mode", "none")
+    if device_override is not None:
+        conf["trainer"]["device"] = device_override
     if mode and mode in ["none", "ddp", "fsdp"]:
         logging.info(f"Setting the running mode to {mode}")
         conf["trainer"]["mode"] = mode
 
+    # Record effective overrides, so checkpoint reload uses the same mode/device.
+    effective_config = os.path.join(save_loc, "model.yml")
+    with open(effective_config, "w", encoding="utf-8") as stream:
+        yaml.safe_dump(conf, stream, sort_keys=False)
+    if launch:
+        config = effective_config
+
     # Launch PBS jobs
     if launch:
+        from mlguess.pbs import launch_pbs_jobs, launch_distributed_jobs
         # Where does this script live?
         script_path = Path(__file__).absolute()
         if conf['pbs']['queue'] == 'casper':

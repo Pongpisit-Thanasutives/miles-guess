@@ -1,0 +1,27 @@
+# Constraints from the executed Python 3.11.17 CPU audit environment.
+# Use -c (not -r) so optional packages remain optional.
+# Install the platform-specific CPU torch wheel first; see README.md.
+# This is not a complete transitive dependency lock or a native OS test claim.
+torch==2.14.1
+numpy==2.4.6
+scipy==1.17.1
+pandas==2.3.3
+scikit-learn==1.9.1
+matplotlib==3.11.2
+properscoring==0.1
+pyyaml==6.0.3
+tqdm==4.70.1
+safetensors==0.8.0
+# Optional Keras/data dependencies used by the audit.
+keras==3.15.1
+h5py==3.16.0
+xarray==2026.9.0
+netCDF4==1.7.5
+pyarrow==26.0.0
+bridgescaler==0.8.6
+# Test/build and notebook-execution packages present in the audit environment.
+pytest==9.1.1
+build==1.6.1
+nbformat==5.11.1
+nbclient==0.11.0
+ipykernel==7.4.0

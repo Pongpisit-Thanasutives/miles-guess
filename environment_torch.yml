@@ -1,35 +1,12 @@
-name: guesstorch
+# Bootstrap only: the CPU wheel source is platform-specific.
+# After activation, follow README.md to install torch and the constrained package.
+name: miles_guess_cpu
 channels:
   - conda-forge
-  - pytorch
 dependencies:
   - python=3.11
-  - numpy<2
-  - scipy
-  - matplotlib
-  - xarray
-  - metpy
-  - netcdf4
-  - pandas
-  - pyyaml
-  - pytest
   - pip
-  - pyproj
-  - jupyter
-  - jupyterlab
-  - cartopy
-  - tqdm
-  - seaborn
-  - sphinx
-  - numba
-  - properscoring
-  - pyarrow
-  - imbalanced-learn
-  - pytorch
-  - pip:
-    - keras
-    - echo-opt
-    - hagelslag
-    - bridgescaler
-    - safetensors
-    - -e .
+# Windows/Linux: python -m pip install torch==2.14.1 --index-url https://download.pytorch.org/whl/cpu
+# macOS 14+ native Apple Silicon: python -m pip install torch==2.14.1
+# All platforms, from the project directory:
+# python -m pip install -c requirements/validated-py311.txt -e ".[torch,notebooks]"

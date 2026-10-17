@@ -35,14 +35,10 @@ data:
   scaler_x:
     params:
       copy: true
-      with_mean: true
-      with_std: true
     type: robust
   scaler_y:
     params:
       copy: true
-      with_mean: true
-      with_std: true
     type: normalize
   split_col: day
   splitter: GroupShuffleSplit

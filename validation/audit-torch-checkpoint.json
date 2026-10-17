@@ -1,0 +1,536 @@
+{
+  "schema_version": 1,
+  "scope": "checkpoint.py, distributed.py, mixed_precision.py, scheduler.py: all module-level functions and class methods inventoried",
+  "environment": {
+    "python": "3.11",
+    "torch": "2.14.1+cpu",
+    "numpy": "2.4.6",
+    "platform": "Linux CPU container; native macOS/Windows not executed"
+  },
+  "status_meaning": {
+    "test": "At least one targeted execution passed; see notes for mocks or unexecuted branches.",
+    "review": "Source reviewed without executing the function.",
+    "unexecuted": "Source reviewed; required runtime unavailable."
+  },
+  "validation": {
+    "command": "python -m pytest mlguess/tests/test_audit_torch_checkpoint.py mlguess/tests/test_modern_trainers.py -q --junitxml=validation/audit-torch-checkpoint-tests.xml",
+    "passed": 46,
+    "skipped": 1,
+    "failed": 0,
+    "new_audit_file_passed": 34,
+    "new_audit_file_skipped": 1,
+    "skip_reason": "Host sandbox forbids socket creation required by CPU Gloo; no actual distributed collective execution claimed."
+  },
+  "changes": [
+    "load_scheduler unwraps library optimizer wrappers before native PyTorch scheduler construction.",
+    "FSDP checkpoint calls receive the native model and optimizer and explicitly request full optimizer state for unsharded saves.",
+    "Checkpoint executable example supplies required rank arguments.",
+    "Distributed wrapper accepts pathlib save locations, expands home paths, rejects CPU FSDP before optional imports, and resolves an unspecified CUDA index to the current device.",
+    "Explicit cosine step(epoch) follows the existing rounded warmup-excluding recurrence used by incremental step(), including backward epoch resets. Invalid shrinking/zero-length schedules are rejected before division by zero."
+  ],
+  "scientific_scope": "No predictive model, loss, or uncertainty formulas changed. The explicit cosine scheduler correction makes its existing two stepping interfaces agree; incremental schedule formulas are preserved.",
+  "source_reference": "https://docs.pytorch.org/docs/stable/fsdp.html (native optimizer and full-state configuration contracts; also inspected installed torch2.14.1 API signatures)",
+  "file_sha256": {
+    "mlguess/torch/checkpoint.py": "c339a0f6d07233bd37e64f71643a0f158d2abd6f0ac18010f125f866ce599b42",
+    "mlguess/torch/distributed.py": "5f6b9d632a358c22911b6046b79df6c3a1a26ff94cb542dd9a156a840d5c838a",
+    "mlguess/torch/mixed_precision.py": "b359d7cc57e0499bddb29aba287bd7a9ed5adbf10d620736ede1af7ebd2dab8a",
+    "mlguess/torch/scheduler.py": "aa1d48d5d2729615fa00b1e5db49c9d3e402dc5006aa343e5255cb6962164507"
+  },
+  "functions": [
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "_fsdp_types",
+      "line": 18,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_fsdp_import_helper_and_legacy_tensor_reshape"
+      ],
+      "notes": "Imports actual installed FSDP types; does not initialize distributed execution."
+    },
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "load_model_state",
+      "line": 30,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_load_model_state_into_cpu_and_wrapped_model"
+      ],
+      "notes": "Raw/trainer model states, Path input, CPU placement and recursively wrapped modules."
+    },
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "save_state_dict",
+      "line": 71,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_checkpoint_roundtrip_paths",
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_checkpoint_nested_optimizer_and_restricted_loading",
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_checkpoint_suffix_and_dependency_checks"
+      ],
+      "notes": "Real torch and safetensors CPU roundtrips, nested state detachment, missing dependency errors."
+    },
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "load_state_dict",
+      "line": 95,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_checkpoint_roundtrip_paths",
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_checkpoint_nested_optimizer_and_restricted_loading",
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_checkpoint_suffix_and_dependency_checks"
+      ],
+      "notes": "CPU mapping, pathlib input, restricted default pickle load, explicit trusted legacy opt-in."
+    },
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "is_dtensor_checkpoint",
+      "line": 129,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_checkpoint_suffix_and_dependency_checks",
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_checkpoint_roundtrip_paths"
+      ],
+      "notes": "Checkpoint suffix validation and safetensors dependency detection."
+    },
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "is_safetensor_checkpoint",
+      "line": 145,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_checkpoint_suffix_and_dependency_checks",
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_checkpoint_roundtrip_paths"
+      ],
+      "notes": "Checkpoint suffix validation and safetensors dependency detection."
+    },
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "is_safetensors_available",
+      "line": 161,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_checkpoint_suffix_and_dependency_checks",
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_checkpoint_roundtrip_paths"
+      ],
+      "notes": "Checkpoint suffix validation and safetensors dependency detection."
+    },
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "TorchFSDPCheckpointIO.__init__",
+      "line": 186,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_fsdp_optimizer_api_routing_with_mocks"
+      ],
+      "notes": "Real CPU serialization with mocked FSDP context, sharding and optimizer APIs; checks native optimizer/model routing, explicit full state and rank-zero file writes.",
+      "unexecuted_branches": "No FSDP collectives or accelerator execution; mock tests only for distributed API contracts."
+    },
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "TorchFSDPCheckpointIO.load_unsharded_model",
+      "line": 189,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_load_model_state_into_cpu_and_wrapped_model"
+      ],
+      "notes": "Real raw-state load into an ordinary CPU model. Accelerator FSDP state loading not executed.",
+      "unexecuted_branches": "FSDP runtime unavailable."
+    },
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "TorchFSDPCheckpointIO.load_unsharded_optimizer",
+      "line": 194,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_fsdp_optimizer_api_routing_with_mocks"
+      ],
+      "notes": "Real CPU serialization with mocked FSDP context, sharding and optimizer APIs; checks native optimizer/model routing, explicit full state and rank-zero file writes.",
+      "unexecuted_branches": "No FSDP collectives or accelerator execution; mock tests only for distributed API contracts."
+    },
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "TorchFSDPCheckpointIO.save_unsharded_model",
+      "line": 206,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_fsdp_optimizer_api_routing_with_mocks"
+      ],
+      "notes": "Real CPU serialization with mocked FSDP context, sharding and optimizer APIs; checks native optimizer/model routing, explicit full state and rank-zero file writes.",
+      "unexecuted_branches": "No FSDP collectives or accelerator execution; mock tests only for distributed API contracts."
+    },
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "TorchFSDPCheckpointIO.save_unsharded_optimizer",
+      "line": 217,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_fsdp_optimizer_api_routing_with_mocks"
+      ],
+      "notes": "Real CPU serialization with mocked FSDP context, sharding and optimizer APIs; checks native optimizer/model routing, explicit full state and rank-zero file writes.",
+      "unexecuted_branches": "No FSDP collectives or accelerator execution; mock tests only for distributed API contracts."
+    },
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "ModelWrapper.__init__",
+      "line": 244,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_load_model_state_into_cpu_and_wrapped_model"
+      ],
+      "notes": "Nested module unwrap and forwarded CPU predictions match the underlying model."
+    },
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "ModelWrapper.unwrap",
+      "line": 248,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_load_model_state_into_cpu_and_wrapped_model"
+      ],
+      "notes": "Nested module unwrap and forwarded CPU predictions match the underlying model."
+    },
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "ModelWrapper.forward",
+      "line": 255,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_load_model_state_into_cpu_and_wrapped_model"
+      ],
+      "notes": "Nested module unwrap and forwarded CPU predictions match the underlying model."
+    },
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "TorchFSDPModel.__init__",
+      "line": 260,
+      "status": "unexecuted",
+      "tests": [],
+      "notes": "Source reviewed: imports FSDP lazily and constructs FSDP around the provided module.",
+      "unexecuted_branches": "Requires initialized distributed runtime and accelerator; neither available."
+    },
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "TorchFSDPModel.unwrap",
+      "line": 265,
+      "status": "review",
+      "tests": [],
+      "notes": "Source reviewed: returns the stored native FSDP module; no computation or transformation.",
+      "unexecuted_branches": "Not executed on a real FSDP instance."
+    },
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "TorchFSDPModel.concat_and_reshape",
+      "line": 268,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_fsdp_import_helper_and_legacy_tensor_reshape"
+      ],
+      "notes": "Pure CPU tensor reshape and concatenation compared against independently indexed slices; no FSDP construction."
+    },
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "OptimizerWrapper.__init__",
+      "line": 281,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_optimizer_wrapper_training_state_and_gradients"
+      ],
+      "notes": "CPU SGD update, direct and supplied-gradient backward, parameter groups, gradient clipping, state restore and explicit unsupported mixed-precision methods."
+    },
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "OptimizerWrapper.parameters",
+      "line": 285,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_optimizer_wrapper_training_state_and_gradients"
+      ],
+      "notes": "CPU SGD update, direct and supplied-gradient backward, parameter groups, gradient clipping, state restore and explicit unsupported mixed-precision methods."
+    },
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "OptimizerWrapper.param_groups",
+      "line": 293,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_optimizer_wrapper_training_state_and_gradients"
+      ],
+      "notes": "CPU SGD update, direct and supplied-gradient backward, parameter groups, gradient clipping, state restore and explicit unsupported mixed-precision methods."
+    },
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "OptimizerWrapper.defaults",
+      "line": 297,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_optimizer_wrapper_training_state_and_gradients"
+      ],
+      "notes": "CPU SGD update, direct and supplied-gradient backward, parameter groups, gradient clipping, state restore and explicit unsupported mixed-precision methods."
+    },
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "OptimizerWrapper.add_param_group",
+      "line": 300,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_optimizer_wrapper_training_state_and_gradients"
+      ],
+      "notes": "CPU SGD update, direct and supplied-gradient backward, parameter groups, gradient clipping, state restore and explicit unsupported mixed-precision methods."
+    },
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "OptimizerWrapper.step",
+      "line": 303,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_optimizer_wrapper_training_state_and_gradients"
+      ],
+      "notes": "CPU SGD update, direct and supplied-gradient backward, parameter groups, gradient clipping, state restore and explicit unsupported mixed-precision methods."
+    },
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "OptimizerWrapper.zero_grad",
+      "line": 308,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_optimizer_wrapper_training_state_and_gradients"
+      ],
+      "notes": "CPU SGD update, direct and supplied-gradient backward, parameter groups, gradient clipping, state restore and explicit unsupported mixed-precision methods."
+    },
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "OptimizerWrapper.backward",
+      "line": 313,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_optimizer_wrapper_training_state_and_gradients"
+      ],
+      "notes": "CPU SGD update, direct and supplied-gradient backward, parameter groups, gradient clipping, state restore and explicit unsupported mixed-precision methods."
+    },
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "OptimizerWrapper.backward_by_grad",
+      "line": 318,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_optimizer_wrapper_training_state_and_gradients"
+      ],
+      "notes": "CPU SGD update, direct and supplied-gradient backward, parameter groups, gradient clipping, state restore and explicit unsupported mixed-precision methods."
+    },
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "OptimizerWrapper.state_dict",
+      "line": 321,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_optimizer_wrapper_training_state_and_gradients"
+      ],
+      "notes": "CPU SGD update, direct and supplied-gradient backward, parameter groups, gradient clipping, state restore and explicit unsupported mixed-precision methods."
+    },
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "OptimizerWrapper.load_state_dict",
+      "line": 326,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_optimizer_wrapper_training_state_and_gradients"
+      ],
+      "notes": "CPU SGD update, direct and supplied-gradient backward, parameter groups, gradient clipping, state restore and explicit unsupported mixed-precision methods."
+    },
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "OptimizerWrapper.clip_grad_by_value",
+      "line": 331,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_optimizer_wrapper_training_state_and_gradients"
+      ],
+      "notes": "CPU SGD update, direct and supplied-gradient backward, parameter groups, gradient clipping, state restore and explicit unsupported mixed-precision methods."
+    },
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "OptimizerWrapper.clip_grad_by_norm",
+      "line": 343,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_optimizer_wrapper_training_state_and_gradients"
+      ],
+      "notes": "CPU SGD update, direct and supplied-gradient backward, parameter groups, gradient clipping, state restore and explicit unsupported mixed-precision methods."
+    },
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "OptimizerWrapper.scale_loss",
+      "line": 365,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_optimizer_wrapper_training_state_and_gradients"
+      ],
+      "notes": "CPU SGD update, direct and supplied-gradient backward, parameter groups, gradient clipping, state restore and explicit unsupported mixed-precision methods."
+    },
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "OptimizerWrapper.unscale_grad",
+      "line": 377,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_optimizer_wrapper_training_state_and_gradients"
+      ],
+      "notes": "CPU SGD update, direct and supplied-gradient backward, parameter groups, gradient clipping, state restore and explicit unsupported mixed-precision methods."
+    },
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "OptimizerWrapper.unwrap",
+      "line": 386,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_optimizer_wrapper_training_state_and_gradients"
+      ],
+      "notes": "CPU SGD update, direct and supplied-gradient backward, parameter groups, gradient clipping, state restore and explicit unsupported mixed-precision methods."
+    },
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "FSDPOptimizerWrapper.__init__",
+      "line": 393,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_fsdp_optimizer_api_routing_with_mocks"
+      ],
+      "notes": "Wrapper construction and nested native-model unwrapping with CPU module/optimizer; actual FSDP remains unexecuted.",
+      "unexecuted_branches": "No accelerator FSDP runtime."
+    },
+    {
+      "file": "mlguess/torch/checkpoint.py",
+      "function": "FSDPOptimizerWrapper.unwrap_model",
+      "line": 397,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_fsdp_optimizer_api_routing_with_mocks"
+      ],
+      "notes": "Wrapper construction and nested native-model unwrapping with CPU module/optimizer; actual FSDP remains unexecuted.",
+      "unexecuted_branches": "No accelerator FSDP runtime."
+    },
+    {
+      "file": "mlguess/torch/distributed.py",
+      "function": "distributed_model_wrapper",
+      "line": 11,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_distributed_cpu_noop_and_clear_fsdp_error",
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_distributed_cuda_device_id_routing_mocked",
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_distributed_actual_single_process_cpu"
+      ],
+      "notes": "Real CPU no-op and pre-import FSDP rejection; DDP device IDs tested with mocked constructor. Actual single-process CPU Gloo test attempted but skipped after host socket permission denial.",
+      "unexecuted_branches": "Real CPU Gloo initialization blocked by sandbox. CUDA DDP and FSDP paths are not runtime-validated."
+    },
+    {
+      "file": "mlguess/torch/mixed_precision.py",
+      "function": "parse_dtype",
+      "line": 4,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_parse_dtype",
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_parse_dtype_invalid"
+      ],
+      "notes": "Case-insensitive floating, integer and bool aliases and invalid-string failure. Existing dtype mapping preserved."
+    },
+    {
+      "file": "mlguess/torch/scheduler.py",
+      "function": "load_scheduler",
+      "line": 13,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_load_scheduler_wrapped_optimizer_and_resume",
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_load_scheduler_disabled_and_invalid"
+      ],
+      "notes": "Lambda, plateau and cosine schedules constructed from wrapper; real optimizer steps and state reload; config is preserved."
+    },
+    {
+      "file": "mlguess/torch/scheduler.py",
+      "function": "lr_lambda_phase2",
+      "line": 47,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_phase_functions_and_annealing_reference_values"
+      ],
+      "notes": "Reference boundary values and phased dispatch; existing schedule formulas preserved."
+    },
+    {
+      "file": "mlguess/torch/scheduler.py",
+      "function": "phased_lr_lambda",
+      "line": 65,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_phase_functions_and_annealing_reference_values"
+      ],
+      "notes": "Reference boundary values and phased dispatch; existing schedule formulas preserved."
+    },
+    {
+      "file": "mlguess/torch/scheduler.py",
+      "function": "lr_lambda_phase1",
+      "line": 86,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_phase_functions_and_annealing_reference_values"
+      ],
+      "notes": "Reference boundary values and phased dispatch; existing schedule formulas preserved."
+    },
+    {
+      "file": "mlguess/torch/scheduler.py",
+      "function": "CosineAnnealingWarmupRestarts.__init__",
+      "line": 125,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_explicit_cosine_step_matches_incremental_schedule",
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_invalid_cosine_configuration",
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_load_scheduler_wrapped_optimizer_and_resume"
+      ],
+      "notes": "Real CPU optimizer LR values, schedule state reload, explicit/incremental cycle agreement across warmup and integer/fractional cycle multipliers, backward epoch jumps and invalid schedule rejection."
+    },
+    {
+      "file": "mlguess/torch/scheduler.py",
+      "function": "CosineAnnealingWarmupRestarts.init_lr",
+      "line": 159,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_explicit_cosine_step_matches_incremental_schedule",
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_invalid_cosine_configuration",
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_load_scheduler_wrapped_optimizer_and_resume"
+      ],
+      "notes": "Real CPU optimizer LR values, schedule state reload, explicit/incremental cycle agreement across warmup and integer/fractional cycle multipliers, backward epoch jumps and invalid schedule rejection."
+    },
+    {
+      "file": "mlguess/torch/scheduler.py",
+      "function": "CosineAnnealingWarmupRestarts.get_lr",
+      "line": 166,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_explicit_cosine_step_matches_incremental_schedule",
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_invalid_cosine_configuration",
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_load_scheduler_wrapped_optimizer_and_resume"
+      ],
+      "notes": "Real CPU optimizer LR values, schedule state reload, explicit/incremental cycle agreement across warmup and integer/fractional cycle multipliers, backward epoch jumps and invalid schedule rejection."
+    },
+    {
+      "file": "mlguess/torch/scheduler.py",
+      "function": "CosineAnnealingWarmupRestarts.step",
+      "line": 177,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_explicit_cosine_step_matches_incremental_schedule",
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_invalid_cosine_configuration",
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_load_scheduler_wrapped_optimizer_and_resume"
+      ],
+      "notes": "Real CPU optimizer LR values, schedule state reload, explicit/incremental cycle agreement across warmup and integer/fractional cycle multipliers, backward epoch jumps and invalid schedule rejection."
+    },
+    {
+      "file": "mlguess/torch/scheduler.py",
+      "function": "annealed_probability",
+      "line": 215,
+      "status": "test",
+      "tests": [
+        "mlguess/tests/test_audit_torch_checkpoint.py::test_phase_functions_and_annealing_reference_values"
+      ],
+      "notes": "Reference boundary values and phased dispatch; existing schedule formulas preserved."
+    }
+  ]
+}

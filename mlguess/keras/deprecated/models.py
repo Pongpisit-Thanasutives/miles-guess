@@ -10,13 +10,15 @@ from keras.regularizers import L1, L2, L1L2
 from keras.layers import Dense, LeakyReLU, GaussianNoise, Dropout
 from keras.optimizers import Adam, SGD
 from mlguess.keras.layers import DenseNormalGamma, DenseNormal
-from mlguess.keras.deprecated.losses import EvidentialRegressionLoss, EvidentialRegressionCoupledLoss, gaussian_nll
+from mlguess.keras.deprecated.losses import EvidentialRegressionLoss, EvidentialRegressionCoupledLoss, gaussian_nll_per_sample
 from mlguess.keras.deprecated.losses import DirichletEvidentialLoss
 from mlguess.keras.callbacks import ReportEpoch
-from imblearn.under_sampling import RandomUnderSampler
-from imblearn.tensorflow import balanced_batch_generator
 from collections import defaultdict
 import logging
+import re
+import warnings
+from mlguess.uncertainty import affine_inverse_scale, inverse_scale_moments, nig_uncertainties
+from mlguess.keras.monte_carlo import mc_raw_predictions, categorical_mc_moments
 
 class BaseRegressor(object):
     """A base class for regression models.
@@ -36,6 +38,8 @@ class BaseRegressor(object):
         verbose: Level of detail to provide during training
         model: Keras Model object
     """
+
+    _uncertainty_kind = "deterministic"
 
     def __init__(
         self,
@@ -94,6 +98,8 @@ class BaseRegressor(object):
         self.metrics = metrics
         self.eps = eps
         self.ensemble_member_files = []
+        self.ensemble_member_scalers = None
+        self.ensemble_member_input_scalers = None
         self.history = None
 
     def build_neural_network(self, inputs, outputs, last_layer="Dense"):
@@ -116,13 +122,13 @@ class BaseRegressor(object):
         elif self.kernel_reg == "l1_l2":
             self.kernel_reg = L1L2(self.l1_weight, self.l2_weight)
         else:
-            self.kernel_reg = None
+            self.kernel_reg = keras.regularizers.get(self.kernel_reg)
 
         for h in range(self.hidden_layers):
             nn_model = Dense(
                 self.hidden_neurons,
                 activation=self.activation,
-                kernel_regularizer=L2(self.l2_weight),
+                kernel_regularizer=self.kernel_reg,
                 name=f"dense_{h:02d}",
             )(nn_model)
             if self.use_dropout:
@@ -148,16 +154,18 @@ class BaseRegressor(object):
         self.model = Model(nn_input, nn_model)
 
         if self.optimizer == "adam":
-            self.optimizer_obj = Adam(learning_rate=self.lr)
+            self.optimizer_obj = Adam(learning_rate=self.lr, beta_1=self.adam_beta_1, beta_2=self.adam_beta_2)
         elif self.optimizer == "sgd":
             self.optimizer_obj = SGD(learning_rate=self.lr, momentum=self.sgd_momentum)
+        else:
+            self.optimizer_obj = keras.optimizers.get(self.optimizer)
 
         if self.metrics == "mae":
             metrics = [self.mae]
         elif self.metrics == "mse":
             metrics = [self.mse]
         else:
-            metrics = None
+            metrics = self.metrics
 
         self.model.compile(
             optimizer=self.optimizer_obj,
@@ -179,9 +187,11 @@ class BaseRegressor(object):
         self.model = model
 
         if optimizer == "adam":
-            self.optimizer_obj = Adam(learning_rate=self.lr)
+            self.optimizer_obj = Adam(learning_rate=self.lr, beta_1=self.adam_beta_1, beta_2=self.adam_beta_2)
         elif optimizer == "sgd":
             self.optimizer_obj = SGD(learning_rate=self.lr, momentum=self.sgd_momentum)
+        else:
+            self.optimizer_obj = keras.optimizers.get(optimizer)
 
         self.model.compile(
             optimizer=self.optimizer_obj,
@@ -219,22 +229,30 @@ class BaseRegressor(object):
             raise ValueError("Model has not been built. Call build_neural_network first.")
         if self.verbose:
             self.model.summary()
-        self.training_var = [np.var(y[:, i]) for i in range(y.shape[-1])]
+        y = np.asarray(y)
+        if y.ndim == 1:
+            y = y[:, None]
+        if validation_data is not None and isinstance(validation_data, tuple):
+            validation_y = np.asarray(validation_data[1])
+            if validation_y.ndim == 1:
+                validation_data = (validation_data[0], validation_y[:, None], *validation_data[2:])
+        self.training_var = np.var(y, axis=0)
+        if workers or use_multiprocessing:
+            warnings.warn("Keras 3 configures workers on a PyDataset, not Model.fit; legacy worker arguments are ignored", DeprecationWarning, stacklevel=2)
+        kwargs.setdefault("batch_size", self.batch_size)
+        kwargs.setdefault("epochs", self.epochs)
+        kwargs.setdefault("verbose", self.verbose)
         self.history = self.model.fit(
             x,
             y,
-            batch_size=self.batch_size,
-            epochs=self.epochs,
-            verbose=self.verbose,
             callbacks=callbacks,
             validation_data=validation_data,
             initial_epoch=initial_epoch,
             steps_per_epoch=steps_per_epoch,
-            workers=workers,
-            use_multiprocessing=use_multiprocessing,
             shuffle=shuffle,
             **kwargs,
         )
+        return self.history
 
     def save_model(self):
         """Save the trained model to a file.
@@ -243,13 +261,13 @@ class BaseRegressor(object):
             os.makedirs(self.save_path)
         model_path = os.path.join(self.save_path, self.model_name)
         keras.models.save_model(
-            self.model, model_path, save_format="h5"
+            self.model, model_path
         )
         logging.info(f"Saved model to {model_path}")
 
         # Save the training variances
         np.savetxt(
-            os.path.join(self.save_path, self.model_name.replace(".h5", "_training_var.txt")),
+            os.path.join(self.save_path, os.path.splitext(self.model_name)[0] + "_training_var.txt"),
             np.array(self.training_var),
         )
 
@@ -301,26 +319,15 @@ class BaseRegressor(object):
         return model_class
 
     def mae(self, y_true, y_pred):
-        """Compute the MAE"""
-        num_splits = y_pred.shape[-1]
-        if num_splits == 4:
-            mu, _, _, _ = ops.split(y_pred, num_splits, axis=-1)
-        elif num_splits == 2:
-            mu, _ = ops.split(y_pred, num_splits, axis=-1)
-        else:
-            mu = y_pred  # Assuming num_splits is 1
+        """MAE of the predictive mean, including multiple target columns."""
+        parts = {"deterministic": 1, "gaussian": 2, "evidential": 4}[self._uncertainty_kind]
+        mu = ops.split(y_pred, parts, axis=-1)[0]
         return keras.metrics.mean_absolute_error(y_true, mu)
 
     def mse(self, y_true, y_pred):
-        """Compute the MSE"""
-        num_splits = y_pred.shape[-1]
-        if num_splits == 4:
-            mu, _, _, _ = ops.split(y_pred, num_splits, axis=-1)
-        elif num_splits == 2:
-            mu, _ = ops.split(y_pred, num_splits, axis=-1)
-        else:
-            mu = y_pred  # Assuming num_splits is 1
-
+        """MSE of the predictive mean, including multiple target columns."""
+        parts = {"deterministic": 1, "gaussian": 2, "evidential": 4}[self._uncertainty_kind]
+        mu = ops.split(y_pred, parts, axis=-1)[0]
         return keras.metrics.mean_squared_error(y_true, mu)
 
     def predict(self, x, scaler=None, batch_size=None):
@@ -343,122 +350,103 @@ class BaseRegressor(object):
             y_out = scaler.inverse_transform(y_out)
         return y_out
 
-    def predict_ensemble(self, x, batch_size=None, scaler=None, num_outputs=1):
-        """Predicts outcomes using an ensemble of trained Keras models.
+    def predict_ensemble(self, x, batch_size=None, scaler=None, num_outputs=1, member_scalers=None, member_input_scalers=None):
+        """Return individual ensemble moments with shape ``(members, samples, targets)``.
 
-        Args:
-            x (numpy.ndarray): Input data for predictions.
-            batch_size (int, optional): Batch size for inference. Default is None.
-            scaler (object, optional): Scaler object for preprocessing input data. Default is None.
-            num_outputs (int, optional): Number of output predictions. Default is 1.
-
-        Returns:
-            numpy.ndarray: Ensemble predictions for the input data.
+        Supply ``member_scalers`` (one fitted target scaler per weight file) when
+        members used different target transforms. A shared ``scaler`` is valid
+        only when all members used that same transform. Cross-validation files
+        naming distinct ``_splitN`` values require explicit target AND input
+        member scalers. With ``member_input_scalers``, x contains raw features;
+        otherwise x must already be in the common feature space of all members.
+        No scaler means that predictions already share the desired target units.
+        Training-variance sidecars are retained as metadata, never guessed to be
+        an inverse-transform scale. Original weights and metadata are restored.
         """
-        num_models = len(self.ensemble_member_files)
-
-        # Initialize output_shape based on the first model's prediction
-        if num_models > 0:
-            first_model = self.model
-            first_model.load_weights(self.ensemble_member_files[0])
-            first_model.training_var = np.loadtxt(
-                self.ensemble_member_files[0].replace(".h5", "_training_var.txt")
-            )
-            if not isinstance(first_model.training_var, list):
-                first_model.training_var = [first_model.training_var]
-
-            if num_outputs == 1:
-                mu = self.predict(x, batch_size=batch_size, scaler=scaler)
-            elif num_outputs == 2:
-                mu, ale = self.predict_uncertainty(x, batch_size=batch_size, scaler=scaler)
-            elif num_outputs == 3:
-                mu, ale, epi = self.predict_uncertainty(x, batch_size=batch_size, scaler=scaler)
-
-            output_shape = mu.shape[1:]
-            ensemble_mu = np.empty((num_models,) + (x.shape[0],) + output_shape)
-            ensemble_mu[0] = mu
-            if num_outputs >= 2:
-                ensemble_ale = np.empty((num_models,) + (x.shape[0],) + output_shape)
-                ensemble_ale[0] = ale
-            if num_outputs == 3:
-                ensemble_epi = np.empty((num_models,) + (x.shape[0],) + output_shape)
-                ensemble_epi[0] = epi
-        else:
-            output_shape = ()  # Default shape if no models
-            ensemble_mu = np.empty((num_models,) + (x.shape[0],) + output_shape)
-            if num_outputs >= 2:
-                ensemble_ale = np.empty((num_models,) + (x.shape[0],) + output_shape)
-            if num_outputs == 3:
-                ensemble_epi = np.empty((num_models,) + (x.shape[0],) + output_shape)
-
-        # Predict for the remaining models
-        for i, weight_location in enumerate(self.ensemble_member_files[1:]):
-            model_instance = self.model
-            model_instance.load_weights(weight_location)
-            model_instance.training_var = np.loadtxt(
-                weight_location.replace(".h5", "_training_var.txt")
-            )
-            if not isinstance(model_instance.training_var, list):
-                model_instance.training_var = [model_instance.training_var]
-
-            if num_outputs == 1:
-                mu = self.predict(x, batch_size=batch_size, scaler=scaler)
-            elif num_outputs == 2:
-                mu, ale = self.predict_uncertainty(x, batch_size=batch_size, scaler=scaler)
-            elif num_outputs == 3:
-                mu, ale, epi = self.predict_uncertainty(x, batch_size=batch_size, scaler=scaler)
-
-            ensemble_mu[i + 1] = mu
-            if num_outputs >= 2:
-                ensemble_ale[i + 1] = ale
-            if num_outputs == 3:
-                ensemble_epi[i + 1] = epi
-
-        if num_outputs == 1:
-            return ensemble_mu
-        elif num_outputs == 2:
-            return ensemble_mu, ensemble_ale
-
-        return ensemble_mu, ensemble_ale, ensemble_epi
+        expected_outputs = {"deterministic": 1, "gaussian": 2, "evidential": 3}[self._uncertainty_kind]
+        if num_outputs != expected_outputs:
+            raise ValueError(f"num_outputs must be {expected_outputs} for {self._uncertainty_kind} predictions")
+        files = self.ensemble_member_files
+        count = len(files)
+        if member_scalers is None:
+            member_scalers = getattr(self, "ensemble_member_scalers", None)
+        if member_scalers is not None and scaler is not None:
+            raise ValueError("Supply a shared scaler or member_scalers, not both")
+        splits = {match.group(1) for path in files
+                  if (match := re.search(r"_split(\d+)", str(path))) is not None}
+        if member_scalers is None:
+            if len(splits) > 1:
+                raise ValueError("Cross-validation ensemble members require their fitted target member_scalers")
+            member_scalers = [scaler] * count
+        elif len(member_scalers) != count:
+            raise ValueError("member_scalers must contain one target scaler per ensemble weight file")
+        if len(splits) > 1 and any(item is None or item is False for item in member_scalers):
+            raise ValueError("A fitted target scaler is required for every cross-validation member")
+        if member_input_scalers is None:
+            member_input_scalers = getattr(self, "ensemble_member_input_scalers", None)
+        if member_input_scalers is None:
+            if len(splits) > 1:
+                raise ValueError("Cross-validation ensemble members require their fitted member_input_scalers")
+            member_input_scalers = [None] * count
+        elif len(member_input_scalers) != count:
+            raise ValueError("member_input_scalers must contain one input scaler per ensemble weight file")
+        if len(splits) > 1 and any(item is None for item in member_input_scalers):
+            raise ValueError("A fitted input scaler is required for every cross-validation member")
+        if count == 0:
+            parameter_count = 1 if num_outputs == 1 else (2 if num_outputs == 2 else 4)
+            n_targets = self.model.output_shape[-1] // parameter_count
+            empty = tuple(np.empty((0, len(x), n_targets)) for _ in range(num_outputs))
+            return empty[0] if num_outputs == 1 else empty
+        original_weights = self.model.get_weights()
+        original_variance = self.training_var
+        collected = [[] for _ in range(num_outputs)]
+        try:
+            for path, target_scaler, input_scaler in zip(files, member_scalers, member_input_scalers):
+                self.model.load_weights(path)
+                member_x = x if input_scaler is None else input_scaler.transform(x)
+                variance_path = os.path.splitext(str(path))[0] + "_training_var.txt"
+                self.training_var = np.atleast_1d(np.loadtxt(variance_path)) if os.path.isfile(variance_path) else []
+                if num_outputs == 1:
+                    components = (self.predict(member_x, batch_size=batch_size, scaler=target_scaler),)
+                else:
+                    components = self.predict_uncertainty(member_x, batch_size=batch_size, scaler=target_scaler)
+                if len(components) != num_outputs:
+                    raise ValueError("The uncertainty helper returned an unexpected number of components")
+                for values, component in zip(collected, components):
+                    values.append(component)
+        finally:
+            self.model.set_weights(original_weights)
+            self.training_var = original_variance
+        output = tuple(np.stack(values, axis=0) for values in collected)
+        return output[0] if num_outputs == 1 else output
 
     def predict_monte_carlo(self, x_test, forward_passes, scaler=None, batch_size=None, num_outputs=1):
-        """Perform Monte Carlo dropout predictions for the model.
+        """Return per-pass target moments; only dropout is stochastic.
 
-        Args:
-            x_test (numpy.ndarray): Input data for prediction.
-            forward_passes (int): Number of Monte Carlo forward passes to perform.
-            y_scaler (optional): Scaler object for post-processing predicted target values (default: None).
-            batch_size (optional): Batch size for prediction (default: None).
-            num_outputs (int): Number of output arrays to return (1, 2, or 3).
-
-        Returns:
-            tuple: Tuple of arrays containing predicted target values and specified uncertainties.
+        Gaussian and NIG parameter tensors are decoded before an affine inverse
+        transform is applied once. Every returned array has shape
+        ``(forward_passes, samples, targets)``, not the raw parameter width.
+        Use ``monte_carlo_ensemble`` to aggregate these conditional moments.
         """
-        n_samples = x_test.shape[0]
-        pred_size = self.model.output_shape[-1]
-        _batch_size = self.batch_size if batch_size is None else batch_size
-
-        output_arrs = [np.zeros((forward_passes, n_samples, pred_size)) for _ in range(num_outputs)]
-
-        for i in range(forward_passes):
-            output = [self.model(x_test[i:i+_batch_size], training=True)
-                      for i in range(0, x_test.shape[0], _batch_size)]
-            output = np.concatenate(output, axis=0)
-
-            if scaler:
-                output = scaler.inverse_transform(output)
-
+        expected_outputs = {"deterministic": 1, "gaussian": 2, "evidential": 3}[self._uncertainty_kind]
+        if num_outputs != expected_outputs:
+            raise ValueError(f"num_outputs must be {expected_outputs} for {self._uncertainty_kind} predictions")
+        size = self.batch_size if batch_size is None else batch_size
+        raw = mc_raw_predictions(self.model, x_test, forward_passes, size)
+        outputs = [[] for _ in range(num_outputs)]
+        for draw in raw:
             if num_outputs == 1:
-                output_arrs[0][i] = output
+                zeros = np.zeros_like(draw)
+                mean, _, _ = inverse_scale_moments(draw, zeros, zeros, scaler)
+                components = (mean,)
             else:
-                output = self.calc_uncertainties(output, scaler)
-                for j in range(num_outputs):
-                    output_arrs[j][i] = output[j]
-
-        if num_outputs == 1:
-            return output_arrs[0]
-
-        return tuple(output_arrs)
+                components = self.calc_uncertainties(draw, scaler)
+            if len(components) != num_outputs:
+                raise ValueError("The uncertainty helper returned an unexpected number of components")
+            for values, component in zip(outputs, components):
+                values.append(component)
+        result = tuple(np.stack(values, axis=0) for values in outputs)
+        return result[0] if num_outputs == 1 else result
 
     def calc_uncertainties(self, output, scaler=None):
         raise NotImplementedError
@@ -468,6 +456,8 @@ class BaseRegressor(object):
 
 
 class RegressorDNN(BaseRegressor):
+    _uncertainty_kind = "deterministic"
+
     def __init__(
         self,
         hidden_layers=1,
@@ -522,6 +512,8 @@ class RegressorDNN(BaseRegressor):
 
 
 class GaussianRegressorDNN(BaseRegressor):
+    _uncertainty_kind = "gaussian"
+
     """
     A Dense Neural Network Model that can support arbitrary numbers of hidden layers
     and provides evidential uncertainty estimation.
@@ -607,7 +599,7 @@ class GaussianRegressorDNN(BaseRegressor):
             metrics,
         )
         self.eps = eps
-        self.loss = gaussian_nll
+        self.loss = gaussian_nll_per_sample
 
     def build_neural_network(self, inputs, outputs, last_layer="DenseNormal"):
         """
@@ -631,10 +623,10 @@ class GaussianRegressorDNN(BaseRegressor):
             mode = "deep_ensemble"
         elif n_splits == 1 and n_models == 1:
             mode = "single"
+        elif n_splits > 1 and n_models > 1:
+            mode = "multi_ensemble"
         else:
-            raise ValueError(
-                "For the Gaussian model, only one of n_models or n_splits can be > 1 while the other must be 1"
-            )
+            raise ValueError("n_models and n_splits must both be positive")
         save_loc = conf["save_loc"]
         # Check if weights file exists
         weights = os.path.join(save_loc, f"{mode}/models", "best.h5")
@@ -653,11 +645,8 @@ class GaussianRegressorDNN(BaseRegressor):
         model_class.model.load_weights(weights)
 
         # Load the variances
-        model_class.training_var = np.loadtxt(
-            os.path.join(os.path.join(save_loc, f"{mode}/models", "best_training_var.txt"))
-        )
-        if not isinstance(model_class.training_var, list):
-            model_class.training_var = [model_class.training_var]
+        variance_file = os.path.join(save_loc, mode, "models", "best_training_var.txt")
+        model_class.training_var = np.atleast_1d(np.loadtxt(variance_file)) if os.path.isfile(variance_file) else []
 
         # Load ensemble weights
         model_class.ensemble_member_files = []
@@ -670,15 +659,13 @@ class GaussianRegressorDNN(BaseRegressor):
 
         return model_class
 
-    def calc_uncertainties(self, preds, y_scaler=False):
-        mu, aleatoric = np.split(preds, 2, axis=-1)
-        if len(mu.shape) == 1:
-            mu = np.expand_dims(mu, axis=0)
-            aleatoric = np.expand_dims(aleatoric, axis=0)
-        if y_scaler is not None:
-            mu = y_scaler.inverse_transform(mu)
-        for i in range(aleatoric.shape[-1]):
-            aleatoric[:, i] *= self.training_var[i]
+    def calc_uncertainties(self, preds, y_scaler=None):
+        """Decode Gaussian ``[mean, sigma]`` into mean and variance in target units."""
+        mu, sigma = np.split(np.atleast_2d(preds), 2, axis=-1)
+        if not np.all(np.isfinite(preds)) or np.any(sigma < 0):
+            raise ValueError("Gaussian means and standard deviations must be finite, with nonnegative standard deviations")
+        aleatoric = np.square(sigma)
+        mu, aleatoric, _ = inverse_scale_moments(mu, aleatoric, np.zeros_like(aleatoric), y_scaler)
         return mu, aleatoric
 
     def predict_uncertainty(self, x, scaler=None, batch_size=None):
@@ -688,18 +675,20 @@ class GaussianRegressorDNN(BaseRegressor):
         return y_out
 
     def predict_dist_params(self, x, scaler=None, batch_size=None):
+        """Return Gaussian ``(mean, standard_deviation)`` in target units."""
         _batch_size = self.batch_size if batch_size is None else batch_size
         preds = self.model.predict(x, batch_size=_batch_size)
-        mu, var = np.split(preds, 2, axis=-1)
-        if mu.shape[-1] == 1:
-            mu = np.expand_dims(mu, 1)
-        if scaler is not None:
-            mu = scaler.inverse_transform(mu)
+        mu, sigma = np.split(np.atleast_2d(preds), 2, axis=-1)
+        if not np.all(np.isfinite(preds)) or np.any(sigma < 0):
+            raise ValueError("Gaussian means and standard deviations must be finite, with nonnegative standard deviations")
+        slope = affine_inverse_scale(scaler, mu.shape[-1])
+        mu, _, _ = inverse_scale_moments(mu, np.zeros_like(mu), np.zeros_like(mu), scaler)
+        return mu, sigma * np.abs(slope)
 
-        return mu, var
-
-    def predict_ensemble(self, x_test, scaler=None, batch_size=None, num_outputs=2):
-        return super().predict_ensemble(x_test, scaler=scaler, batch_size=batch_size, num_outputs=num_outputs)
+    def predict_ensemble(self, x_test, scaler=None, batch_size=None, num_outputs=2, member_scalers=None, member_input_scalers=None):
+        return super().predict_ensemble(x_test, scaler=scaler, batch_size=batch_size,
+                                       num_outputs=num_outputs, member_scalers=member_scalers,
+                                       member_input_scalers=member_input_scalers)
 
     def predict_monte_carlo(self, x_test, forward_passes, scaler=None, batch_size=None, num_outputs=2):
         return super().predict_monte_carlo(x_test, forward_passes, scaler=scaler,
@@ -730,6 +719,8 @@ class EvidentialRegressorDNN(BaseRegressor):
         metrics: Optional list of metrics to monitor during training.
 
     """
+    _uncertainty_kind = "evidential"
+
     def __init__(
         self,
         hidden_layers=1,
@@ -838,12 +829,8 @@ class EvidentialRegressorDNN(BaseRegressor):
         model_class.model.load_weights(weights)
 
         # Load the variances
-        model_class.training_var = np.loadtxt(
-            os.path.join(os.path.join(conf["model"]["save_path"], "models", "best_training_var.txt"))
-        )
-
-        if not model_class.training_var.shape:
-            model_class.training_var = np.array([model_class.training_var])
+        variance_file = os.path.join(conf["model"]["save_path"], "models", "best_training_var.txt")
+        model_class.training_var = np.atleast_1d(np.loadtxt(variance_file)) if os.path.isfile(variance_file) else []
 
         # Load ensemble if there is one
         save_loc = conf["save_loc"]
@@ -855,6 +842,10 @@ class EvidentialRegressorDNN(BaseRegressor):
             mode = "deep_ensemble"
         elif n_splits == 1 and n_models == 1:
             mode = "single"
+        elif n_splits > 1 and n_models > 1:
+            mode = "multi_ensemble"
+        else:
+            raise ValueError("n_models and n_splits must both be positive")
         model_class.ensemble_member_files = []
         if mode != "single":
             for i in range(n_models):
@@ -866,28 +857,12 @@ class EvidentialRegressorDNN(BaseRegressor):
         return model_class
 
     def calc_uncertainties(self, preds, y_scaler=None):
-        mu, v, alpha, beta = np.split(preds, 4, axis=-1)
-
+        """Decode NIG moments and transform both variances with the affine slope squared."""
+        mu, v, alpha, beta = np.split(np.atleast_2d(preds), 4, axis=-1)
         if isinstance(self.loss, EvidentialRegressionCoupledLoss):
-            v = (
-                2 * (alpha - 1) / self.coupling_coef
-            )  # need to couple this way otherwise alpha could be negative
-        aleatoric = beta / (alpha - 1)
-        epistemic = beta / (v * (alpha - 1))
-
-        if len(mu.shape) == 1:
-            mu = np.expand_dims(mu, 1)
-            aleatoric = np.expand_dims(aleatoric, 1)
-            epistemic = np.expand_dims(epistemic, 1)
-
-        if y_scaler:
-            mu = y_scaler.inverse_transform(mu)
-
-        for i in range(mu.shape[-1]):
-            aleatoric[:, i] *= self.training_var[i]
-            epistemic[:, i] *= self.training_var[i]
-
-        return mu, aleatoric, epistemic
+            v = 2 * (alpha - 1) / self.coupling_coef
+        mu, aleatoric, epistemic, _ = nig_uncertainties(mu, v, alpha, beta)
+        return inverse_scale_moments(mu, aleatoric, epistemic, y_scaler)
 
     def predict_uncertainty(self, x, scaler=None, batch_size=None):
         _batch_size = self.batch_size if batch_size is None else batch_size
@@ -898,23 +873,21 @@ class EvidentialRegressorDNN(BaseRegressor):
         return y_out
 
     def predict_dist_params(self, x, y_scaler=None, batch_size=None):
+        """Return NIG parameters in target units (beta scales by inverse slope squared)."""
         _batch_size = self.batch_size if batch_size is None else batch_size
         preds = self.model.predict(x, batch_size=_batch_size)
-        mu, v, alpha, beta = np.split(preds, 4, axis=-1)
+        mu, v, alpha, beta = np.split(np.atleast_2d(preds), 4, axis=-1)
         if isinstance(self.loss, EvidentialRegressionCoupledLoss):
-            v = (
-                2 * (alpha - 1) / self.coupling_coef
-            )  # need to couple this way otherwise alpha could be negative
+            v = 2 * (alpha - 1) / self.coupling_coef
+        nig_uncertainties(mu, v, alpha, beta)
+        slope = affine_inverse_scale(y_scaler, mu.shape[-1])
+        mu, _, _ = inverse_scale_moments(mu, np.zeros_like(mu), np.zeros_like(mu), y_scaler)
+        return mu, v, alpha, beta * np.square(slope)
 
-        if mu.shape[-1] == 1:
-            mu = np.expand_dims(mu, 1)
-        if y_scaler is not None:
-            mu = y_scaler.inverse_transform(mu)
-
-        return mu, v, alpha, beta
-
-    def predict_ensemble(self, x_test, scaler=None, batch_size=None):
-        return super().predict_ensemble(x_test, scaler=scaler, batch_size=batch_size, num_outputs=3)
+    def predict_ensemble(self, x_test, scaler=None, batch_size=None, member_scalers=None, member_input_scalers=None):
+        return super().predict_ensemble(x_test, scaler=scaler, batch_size=batch_size,
+                                       num_outputs=3, member_scalers=member_scalers,
+                                       member_input_scalers=member_input_scalers)
 
     def predict_monte_carlo(self, x_test, forward_passes, scaler=None, batch_size=None):
         return super().predict_monte_carlo(x_test, forward_passes,
@@ -1004,9 +977,7 @@ class CategoricalDNN(object):
         self.use_dropout = use_dropout
         self.dropout_alpha = dropout_alpha
         self.epochs = epochs
-        if callbacks is None:
-            self.callbacks = []
-        self.callbacks = callbacks
+        self.callbacks = [] if callbacks is None else list(callbacks)
         self.decay = decay
         self.verbose = verbose
         self.y_labels = None
@@ -1014,6 +985,7 @@ class CategoricalDNN(object):
         self.random_state = random_state
         self.balanced_classes = balanced_classes
         self.steps_per_epoch = steps_per_epoch
+        self.ensemble_member_files = []
 
     def build_neural_network(self, inputs, outputs):
         """
@@ -1023,6 +995,13 @@ class CategoricalDNN(object):
             inputs (int): Number of input predictor variables
             outputs (int): Number of output predictor variables
         """
+        if self.loss == "evidential":
+            epoch = keras.Variable(0.0, trainable=False)
+            report = ReportEpoch(epoch)
+            self.callbacks.append(report)
+            self.loss = DirichletEvidentialLoss(callback=report, this_epoch_num=epoch,
+                                                annealing_coef=1.0 if self.annealing_coeff is None else self.annealing_coeff)
+            self.output_activation = "linear"
         if self.activation == "leaky":
             self.activation = LeakyReLU()
         if self.kernel_reg == "l1":
@@ -1032,7 +1011,7 @@ class CategoricalDNN(object):
         elif self.kernel_reg == "l1_l2":
             self.kernel_reg = L1L2(self.l1_weight, self.l2_weight)
         else:
-            self.kernel_reg = None
+            self.kernel_reg = keras.regularizers.get(self.kernel_reg)
 
         self.model = keras.models.Sequential()
         self.model.add(
@@ -1071,6 +1050,8 @@ class CategoricalDNN(object):
             )
         elif self.optimizer == "sgd":
             self.optimizer_obj = SGD(learning_rate=self.lr, momentum=self.sgd_momentum)
+        else:
+            self.optimizer_obj = keras.optimizers.get(self.optimizer)
 
         self.model.build((self.batch_size, inputs))
         self.model.compile(optimizer=self.optimizer_obj, loss=self.loss)
@@ -1097,36 +1078,46 @@ class CategoricalDNN(object):
             )
         elif optimizer == "sgd":
             self.optimizer_obj = SGD(learning_rate=self.lr, momentum=self.sgd_momentum)
+        else:
+            self.optimizer_obj = keras.optimizers.get(optimizer)
 
         self.model.compile(
             optimizer=self.optimizer_obj,
             loss=loss,
             loss_weights=self.loss_weights,
+            metrics=metrics,
         )
 
     def fit(self, x_train, y_train, validation_data=None):
-
+        y_train = np.asarray(y_train)
+        if y_train.ndim == 1 or (y_train.ndim == 2 and y_train.shape[1] == 1):
+            if np.any(y_train != y_train.astype(int)) or np.any(y_train < 0):
+                raise ValueError("Class labels must be nonnegative integer indices")
+            y_train = keras.utils.to_categorical(y_train.reshape(-1))
         inputs = x_train.shape[-1]
         outputs = y_train.shape[-1]
 
-        if self.loss == "evidential":
-            this_epoch_num = keras.variable(value=0)
-            report_epoch_callback = ReportEpoch(self.annealing_coeff, this_epoch_num)
+        evidential = self.loss == "evidential" or isinstance(self.loss, DirichletEvidentialLoss)
+        if evidential:
+            this_epoch_num = keras.Variable(0.0, trainable=False)
+            report_epoch_callback = ReportEpoch(this_epoch_num)
+            self.callbacks = [item for item in self.callbacks if not isinstance(item, ReportEpoch)]
             self.callbacks.insert(0, report_epoch_callback)
             self.loss = DirichletEvidentialLoss(
-                callback=report_epoch_callback, name=self.loss, this_epoch_num=this_epoch_num
+                callback=report_epoch_callback, this_epoch_num=this_epoch_num,
+                annealing_coef=1.0 if self.annealing_coeff is None else self.annealing_coeff,
             )
             self.output_activation = "linear"
-        else:
-            self.output_activation = "softmax"
 
         self.build_neural_network(inputs, outputs)
         if self.balanced_classes:
+            from imblearn.under_sampling import RandomUnderSampler
+            from imblearn.tensorflow import balanced_batch_generator
             train_idx = np.argmax(y_train, 1)
             training_generator, steps_per_epoch = balanced_batch_generator(
                 x_train,
                 y_train,
-                sample_weight=np.array([self.loss_weights[_] for _ in train_idx]),
+                sample_weight=None if self.loss_weights is None else np.array([self.loss_weights[_] for _ in train_idx]),
                 sampler=RandomUnderSampler(),
                 batch_size=self.batch_size,
                 random_state=self.random_state,
@@ -1141,7 +1132,7 @@ class CategoricalDNN(object):
                 callbacks=self.callbacks,
                 shuffle=True,
             )
-        elif self.loss_weights is not None and self.loss != "evidential":
+        elif self.loss_weights is not None and not evidential:
             # Allow weights to be used with ev model but they need loaded into the custom loss first
             if self.loss == "evidential":
                 logging.warning("Class weights are not being used with the evidential model. They will be supported in a future version.")
@@ -1204,7 +1195,7 @@ class CategoricalDNN(object):
         return model_class
 
     def save_model(self, model_path):
-        keras.models.save_model(self.model, model_path, save_format="h5")
+        keras.models.save_model(self.model, model_path)
         return
 
     def predict(self, x, batch_size=None):
@@ -1218,58 +1209,42 @@ class CategoricalDNN(object):
         return y_prob
 
     def predict_dropout(self, x, mc_forward_passes=10, batch_size=None):
-        _batch_size = self.batch_size if batch_size is None else batch_size
-        y_prob = np.stack(
-            [
-                np.vstack(
-                    [
-                        self.model(ops.expand_dims(lx, axis=-1), training=True)
-                        for lx in np.array_split(x, x.shape[0] // _batch_size)
-                    ]
-                )
-                for _ in range(mc_forward_passes)
-            ]
-        )
-        pred_probs = y_prob.mean(axis=0)
-        epistemic = y_prob.var(axis=0)
-        aleatoric = np.mean(y_prob * (1.0 - y_prob), axis=0)
+        """Return probabilities, marginal variances, entropy, and mutual information.
 
-        # Calculating entropy across multiple MCD forward passes
-        epsilon = sys.float_info.min
-        entropy = -np.sum(
-            pred_probs * np.log(pred_probs + epsilon), axis=-1
-        )  # shape (n_samples,)
-        # Calculating mutual information across multiple MCD forward passes
-        mutual_info = entropy - np.mean(
-            np.sum(-np.array(y_prob) * np.log(y_prob + epsilon), axis=-1), axis=0
-        )  # shape (n_samples,)
-        return pred_probs, aleatoric, epistemic, entropy, mutual_info
+        Only dropout is stochastic; BatchNorm and additive noise remain in
+        inference mode. Evidential predictions include both within-Dirichlet
+        and between-pass epistemic uncertainty. Inputs retain shape
+        (samples, features), including batches smaller than ``batch_size``.
+        """
+        size = self.batch_size if batch_size is None else batch_size
+        x = ops.convert_to_numpy(x)
+        if x.ndim != 2 or len(x) == 0:
+            raise ValueError("x must be a nonempty (samples, features) array")
+        evidential = self.loss == "evidential" or isinstance(self.loss, DirichletEvidentialLoss)
+        activation = keras.activations.serialize(keras.activations.get(self.output_activation))
+        if not evidential and activation not in ("softmax", "linear"):
+            raise ValueError("Categorical dropout requires softmax probabilities or linear logits")
+        samples = mc_raw_predictions(self.model, x, mc_forward_passes, size)
+        return categorical_mc_moments(samples, evidential=evidential,
+                                      from_logits=(not evidential and activation == "linear"))
 
     def predict_ensemble(self, x, batch_size=None):
-        num_models = len(self.ensemble_member_files)
-
-        # Initialize output_shape based on the first model's prediction
-        if num_models > 0:
-            first_model = self.model
-            first_model.load_weights(self.ensemble_member_files[0])
-            first_prediction = self.predict(x, batch_size=batch_size)
-            output_shape = first_prediction.shape[1:]
-            predictions = np.empty((num_models,) + (x.shape[0],) + output_shape)
-            predictions[0] = first_prediction
-        else:
-            output_shape = ()  # Default shape if no models
-            predictions = np.empty((num_models,) + (x.shape[0],) + output_shape)
-
-        # Predict for the remaining models
-        for i, weight_location in enumerate(self.ensemble_member_files[1:]):
-            model_instance = self.model
-            model_instance.load_weights(weight_location)
-            y_prob = model_instance.predict(x, batch_size=batch_size)
-            predictions[i + 1] = y_prob
-
-        return predictions
+        """Return member predictions while preserving the loaded model weights."""
+        original = self.model.get_weights()
+        predictions = []
+        try:
+            for path in self.ensemble_member_files:
+                self.model.load_weights(path)
+                predictions.append(self.predict(x, batch_size=batch_size))
+        finally:
+            self.model.set_weights(original)
+        if not predictions:
+            return np.empty((0, len(x), self.model.output_shape[-1]))
+        return np.stack(predictions)
 
     def predict_uncertainty(self, x):
+        if not (self.loss == "evidential" or isinstance(self.loss, DirichletEvidentialLoss)):
+            raise ValueError("Dirichlet uncertainty requires an evidential classifier")
         num_classes = self.model.output_shape[-1]
         y_pred = self.predict(x)
         evidence = ops.relu(y_pred)
@@ -1283,14 +1258,17 @@ class CategoricalDNN(object):
 
 
 def locate_best_model(filepath, metric="val_ave_acc", direction="max"):
-    filepath = glob.glob(os.path.join(filepath, "models", "training_log_*.csv"))
-    func = min if direction == "min" else max
-    scores = defaultdict(list)
-    for filename in filepath:
-        f = pd.read_csv(filename)
-        best_ensemble = int(filename.split("_log_")[1].replace(".csv", ""))
-        scores["best_ensemble"].append(best_ensemble)
-        scores["metric"].append(func(f[metric]))
-
-    best_c = scores["metric"].index(func(scores["metric"]))
-    return scores["best_ensemble"][best_c]
+    """Select a finite best metric from saved training logs."""
+    if direction not in ("min", "max"):
+        raise ValueError("direction must be 'min' or 'max'")
+    files = glob.glob(os.path.join(filepath, "models", "training_log_*.csv"))
+    candidates = []
+    for filename in files:
+        values = pd.read_csv(filename)[metric]
+        finite = values[np.isfinite(values)]
+        if len(finite):
+            member = int(os.path.basename(filename).split("_log_")[1].replace(".csv", ""))
+            candidates.append((float(finite.min() if direction == "min" else finite.max()), member))
+    if not candidates:
+        raise ValueError("No training logs contain finite values for the requested metric")
+    return (min(candidates) if direction == "min" else max(candidates))[1]

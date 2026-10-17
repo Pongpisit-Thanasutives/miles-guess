@@ -2,20 +2,6 @@
 import torch
 import os
 
-from torch.distributed.fsdp.fully_sharded_data_parallel import (
-    MixedPrecision,
-    CPUOffload
-)
-from torch.distributed.fsdp.wrap import size_based_auto_wrap_policy
-
-from torch.distributed.algorithms._checkpoint.checkpoint_wrapper import (
-   checkpoint_wrapper,
-   CheckpointImpl,
-   apply_activation_checkpointing,
-)
-from mlguess.torch.checkpoint import (
-    TorchFSDPModel
-)
 from torch.nn.parallel import DistributedDataParallel as DDP
 from mlguess.torch.mixed_precision import parse_dtype
 import functools
@@ -35,10 +21,20 @@ def distributed_model_wrapper(conf, neural_network, device):
         torch.nn.Module: The distributed model wrapped according to the configuration.
     """
     # convert $USER to the actual user name
-    conf['save_loc'] = os.path.expandvars(conf['save_loc'])
+    if 'save_loc' in conf:
+        conf['save_loc'] = os.path.expanduser(os.path.expandvars(os.fspath(conf['save_loc'])))
 
     # FSDP polices
     if conf["trainer"]["mode"] == "fsdp":
+        if torch.device(device).type == "cpu":
+            raise ValueError("FSDP requires an accelerator; use mode=none or CPU DDP for CPU training.")
+
+        from torch.distributed.fsdp import MixedPrecision, CPUOffload
+        from torch.distributed.fsdp.wrap import size_based_auto_wrap_policy
+        from torch.distributed.algorithms._checkpoint.checkpoint_wrapper import (
+            checkpoint_wrapper, CheckpointImpl, apply_activation_checkpointing,
+        )
+        from mlguess.torch.checkpoint import TorchFSDPModel
 
         auto_wrap_policy = functools.partial(
             size_based_auto_wrap_policy, min_num_params=100_000
@@ -51,9 +47,11 @@ def distributed_model_wrapper(conf, neural_network, device):
         logging.info(f"Using mixed_precision: {use_mixed_precision}")
 
         if use_mixed_precision:
-            for key, val in conf["trainer"]["mixed_precision"].items():
-                conf["trainer"]["mixed_precision"][key] = parse_dtype(val)
-            mixed_precision_policy = MixedPrecision(**conf["trainer"]["mixed_precision"])
+            mixed_precision_options = {
+                key: parse_dtype(val) if isinstance(val, str) else val
+                for key, val in conf["trainer"]["mixed_precision"].items()
+            }
+            mixed_precision_policy = MixedPrecision(**mixed_precision_options)
         else:
             mixed_precision_policy = None
 
@@ -88,7 +86,12 @@ def distributed_model_wrapper(conf, neural_network, device):
                 checkpoint_impl=CheckpointImpl.NO_REENTRANT,
             )
 
-            check_fn = lambda submodule: any(isinstance(submodule, cls) for cls in auto_wrap_policy)
+            # The size-based wrap policy is a callable, not an iterable of classes.
+            check_fn = lambda submodule: size_based_auto_wrap_policy(
+                submodule, recurse=False,
+                nonwrapped_numel=sum(p.numel() for p in submodule.parameters()),
+                min_num_params=100_000,
+            )
 
             apply_activation_checkpointing(
                 model,
@@ -100,7 +103,9 @@ def distributed_model_wrapper(conf, neural_network, device):
         torch.distributed.barrier()
 
     elif conf["trainer"]["mode"] == "ddp":
-        model = DDP(neural_network, device_ids=[device])
+        device = torch.device(device)
+        device_ids = [device.index if device.index is not None else torch.cuda.current_device()] if device.type == "cuda" else None
+        model = DDP(neural_network, device_ids=device_ids)
     else:
         model = neural_network
 

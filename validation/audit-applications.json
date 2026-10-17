@@ -1,0 +1,484 @@
+{
+  "audit_date": "2026-10-17",
+  "scope": [
+    "applications/_common.py",
+    "applications/predict_regressor_torch.py",
+    "applications/train_classifier_torch.py",
+    "applications/train_regressor_torch.py",
+    "mlguess/keras/data.py",
+    "mlguess/pbs.py",
+    "mlguess/preprocessing.py",
+    "mlguess/splitting.py"
+  ],
+  "scope_note": "No separate bootstrap/data module exists in mlguess beyond the listed data/preprocessing/splitting files. Metrics, plotting, uncertainty mathematics, Keras models and Torch models/trainers were assigned to other audit agents.",
+  "runtime": {
+    "python": "3.11.17",
+    "platform": "Linux-6.18.55-x86_64-with-glibc2.39",
+    "torch": "2.14.1+cpu",
+    "numpy": "2.4.6",
+    "device": "cpu"
+  },
+  "test_runs": [
+    {
+      "command": "OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 /workspace/scratch/d7d34632ac75/.venv311/bin/python -m pytest mlguess/tests/test_audit_applications.py mlguess/tests/test_applications.py -q",
+      "result": "47 passed in 41.33 seconds",
+      "log": "validation/audit-applications-tests.log"
+    }
+  ],
+  "status_definitions": {
+    "tested": "Function executed directly or through integration tests; mocks and unexecuted branches are listed explicitly.",
+    "reviewed": "Source reviewed with mocked integration calls; actual external/backend integration not executed.",
+    "unexecuted": "No direct runtime execution."
+  },
+  "functions": [
+    {
+      "file": "applications/_common.py",
+      "function": "validate_application_run",
+      "status": "tested",
+      "tests": [
+        "mlguess/tests/test_audit_applications.py::test_multi_rank_applications_reject_unsafe_csv_export_before_training"
+      ],
+      "notes": "All three mains reject world_size != 1 before model/data/training side effects; mode is validated. Rank-local prediction export cannot safely be attached to full DataFrames.",
+      "unexecuted_branches": [],
+      "reviewed": true
+    },
+    {
+      "file": "applications/_common.py",
+      "function": "resolve_device",
+      "status": "tested",
+      "tests": [
+        "mlguess/tests/test_applications.py::test_explicit_cpu_never_initializes_cuda",
+        "mlguess/tests/test_applications.py::test_regression_application_train_and_reload_on_cpu"
+      ],
+      "notes": "Explicit CPU path and auto CPU fallback used in synthetic application runs. LOCAL_RANK, device ordinal selection, and unavailable CUDA handling source-reviewed.",
+      "unexecuted_branches": [
+        "CUDA device selection",
+        "native macOS and Windows execution"
+      ],
+      "reviewed": true
+    },
+    {
+      "file": "applications/_common.py",
+      "function": "setup",
+      "status": "reviewed",
+      "tests": [
+        "mlguess/tests/test_audit_applications.py::test_common_distributed_setup_and_cleanup_are_guarded"
+      ],
+      "notes": "CPU selects gloo; CPU FSDP raises clearly. Backend call is mocked so no real process group is initialized.",
+      "unexecuted_branches": [
+        "real distributed group initialization",
+        "CUDA/NCCL"
+      ],
+      "reviewed": true
+    },
+    {
+      "file": "applications/_common.py",
+      "function": "cleanup_distributed",
+      "status": "tested",
+      "tests": [
+        "mlguess/tests/test_audit_applications.py::test_common_distributed_setup_and_cleanup_are_guarded"
+      ],
+      "notes": "Availability/initialization guard and destruction tested with mocked distributed API.",
+      "unexecuted_branches": [
+        "real process group destruction"
+      ],
+      "reviewed": true
+    },
+    {
+      "file": "applications/_common.py",
+      "function": "make_grad_scaler",
+      "status": "tested",
+      "tests": [
+        "mlguess/tests/test_applications.py::test_explicit_cpu_never_initializes_cuda",
+        "mlguess/tests/test_applications.py::test_cpu_optimizer_checkpoint_resume"
+      ],
+      "notes": "Modern torch.amp CPU-disabled scaling executed and resumed. FSDP scaler import is lazy.",
+      "unexecuted_branches": [
+        "CUDA AMP",
+        "FSDP ShardedGradScaler"
+      ],
+      "reviewed": true
+    },
+    {
+      "file": "applications/_common.py",
+      "function": "import_class_from_path",
+      "status": "tested",
+      "tests": [
+        "mlguess/tests/test_applications.py::test_custom_dataset_supports_spawn_workers",
+        "mlguess/tests/test_audit_applications.py::test_dynamic_dataset_module_collision_without_file_is_clear"
+      ],
+      "notes": "Real module name and sys.path registration enable an actual spawned worker to load a temporary dataset. Existing module without __file__ raises an actionable collision error.",
+      "unexecuted_branches": [
+        "native Windows/macOS spawn environments"
+      ],
+      "reviewed": true
+    },
+    {
+      "file": "applications/_common.py",
+      "function": "load_objective",
+      "status": "tested",
+      "tests": [
+        "mlguess/tests/test_audit_applications.py::test_common_optional_objective_and_array_columns"
+      ],
+      "notes": "Unknown attribute handling and dynamic multiple inheritance tested with a synthetic ECHO BaseObjective; ECHO import stays lazy.",
+      "unexecuted_branches": [
+        "real ECHO/Optuna study integration"
+      ],
+      "reviewed": true
+    },
+    {
+      "file": "applications/_common.py",
+      "function": "add_regression_columns",
+      "status": "tested",
+      "tests": [
+        "mlguess/tests/test_applications.py::test_multitarget_prediction_columns_keep_each_target",
+        "mlguess/tests/test_audit_applications.py::test_common_optional_objective_and_array_columns"
+      ],
+      "notes": "All target columns preserved; optional unknown variances omitted; array-like values accepted; row dimensions and target names checked without modifying input frame.",
+      "unexecuted_branches": [],
+      "reviewed": true
+    },
+    {
+      "file": "applications/train_regressor_torch.py",
+      "function": "load_dataset_and_sampler",
+      "status": "tested",
+      "tests": [
+        "mlguess/tests/test_applications.py::test_regression_application_train_and_reload_on_cpu",
+        "mlguess/tests/test_audit_applications.py::test_regression_cli_records_effective_overrides_and_runs_small_cpu_data"
+      ],
+      "notes": "Synthetic source dataset loads each requested split using ordered sampler; dataset-supplied preprocessing is external to this function.",
+      "unexecuted_branches": [
+        "arbitrary user dataset leakage guarantees"
+      ],
+      "reviewed": true
+    },
+    {
+      "file": "applications/train_regressor_torch.py",
+      "function": "main",
+      "status": "tested",
+      "tests": [
+        "mlguess/tests/test_applications.py::test_regression_application_train_and_reload_on_cpu",
+        "mlguess/tests/test_audit_applications.py::test_regression_cli_records_effective_overrides_and_runs_small_cpu_data",
+        "mlguess/tests/test_audit_applications.py::test_tuning_uses_small_training_batch_and_skips_postfit_test_evaluation",
+        "mlguess/tests/test_audit_applications.py::test_multi_rank_applications_reject_unsafe_csv_export_before_training"
+      ],
+      "notes": "Actual CPU fit, checkpoint creation, all split prediction CSVs and multi-target output tested. Handles dataset without optional training_var/y_scaler. Small training set retains a batch. Explicit compute device forwarded to Trainer. HPO returns fit validation result before post-fit test evaluation.",
+      "unexecuted_branches": [
+        "CUDA",
+        "FSDP",
+        "distributed execution",
+        "arbitrary custom datasets"
+      ],
+      "reviewed": true
+    },
+    {
+      "file": "applications/train_regressor_torch.py",
+      "function": "_ObjectiveMixin.train",
+      "status": "tested",
+      "tests": [
+        "mlguess/tests/test_audit_applications.py::test_regression_tuning_adapts_batch_and_validation_coefficient"
+      ],
+      "notes": "Batch sizes and validation coefficient adapted; main result forwarded. Actual main is mocked. Pruning imports remain lazy.",
+      "unexecuted_branches": [
+        "Optuna exception/pruning integration"
+      ],
+      "reviewed": true
+    },
+    {
+      "file": "applications/train_regressor_torch.py",
+      "function": "load_model_states_and_optimizer",
+      "status": "tested",
+      "tests": [
+        "mlguess/tests/test_applications.py::test_cpu_optimizer_checkpoint_resume"
+      ],
+      "notes": "CPU initialization and weights_only checkpoint/optimizer reload executed. Scheduler and AMP state conditions reviewed; imports of FSDP helpers are lazy.",
+      "unexecuted_branches": [
+        "FSDP checkpoint reload",
+        "CUDA AMP state reload",
+        "DDP wrapper resume"
+      ],
+      "reviewed": true
+    },
+    {
+      "file": "applications/train_regressor_torch.py",
+      "function": "__getattr__",
+      "status": "tested",
+      "tests": [
+        "mlguess/tests/test_audit_applications.py::test_application_optional_objective_delegates_without_optional_import",
+        "mlguess/tests/test_applications.py::test_cli_help_without_tuning_dependencies"
+      ],
+      "notes": "Lazy Objective factory forwarding tested; ordinary CLI --help has no ECHO/Optuna/W&B dependency.",
+      "unexecuted_branches": [
+        "real ECHO objective class integration"
+      ],
+      "reviewed": true
+    },
+    {
+      "file": "applications/train_classifier_torch.py",
+      "function": "load_dataset_and_sampler",
+      "status": "tested",
+      "tests": [
+        "mlguess/tests/test_audit_applications.py::test_classifier_loader_honors_split_seed_and_scale_groups",
+        "mlguess/tests/test_applications.py::test_classifier_application_prediction_rows_follow_dataframe"
+      ],
+      "notes": "Configured split, group definitions and seed passed through; class axis becomes integer labels; feature order preserved. Dataset loading is mocked in app tests and real preprocessing is covered separately.",
+      "unexecuted_branches": [
+        "external precipitation parquet datasets"
+      ],
+      "reviewed": true
+    },
+    {
+      "file": "applications/train_classifier_torch.py",
+      "function": "main",
+      "status": "tested",
+      "tests": [
+        "mlguess/tests/test_applications.py::test_classifier_application_prediction_rows_follow_dataframe",
+        "mlguess/tests/test_audit_applications.py::test_tuning_uses_small_training_batch_and_skips_postfit_test_evaluation",
+        "mlguess/tests/test_audit_applications.py::test_multi_rank_applications_reject_unsafe_csv_export_before_training"
+      ],
+      "notes": "Actual CPU fit and row-aligned exports tested for evidential and ordinary classifiers. Trainer probabilities consumed once. Explicit compute device forwarded. HPO returns fit validation result and skips post-fit testing.",
+      "unexecuted_branches": [
+        "CUDA",
+        "FSDP",
+        "distributed execution"
+      ],
+      "reviewed": true
+    },
+    {
+      "file": "applications/train_classifier_torch.py",
+      "function": "_ObjectiveMixin.train",
+      "status": "tested",
+      "tests": [
+        "mlguess/tests/test_audit_applications.py::test_classifier_tuning_does_not_require_regression_loss_config"
+      ],
+      "notes": "Classifier HPO no longer requires unrelated regression loss configuration. Main forwarding and ordinary errors tested without importing Optuna.",
+      "unexecuted_branches": [
+        "Optuna exception/pruning integration"
+      ],
+      "reviewed": true
+    },
+    {
+      "file": "applications/train_classifier_torch.py",
+      "function": "load_model_states_and_optimizer",
+      "status": "tested",
+      "tests": [
+        "mlguess/tests/test_applications.py::test_cpu_optimizer_checkpoint_resume"
+      ],
+      "notes": "CPU initialization and weights_only checkpoint/optimizer reload executed. Scheduler and AMP state conditions reviewed; imports of FSDP helpers are lazy.",
+      "unexecuted_branches": [
+        "FSDP checkpoint reload",
+        "CUDA AMP state reload",
+        "DDP wrapper resume"
+      ],
+      "reviewed": true
+    },
+    {
+      "file": "applications/train_classifier_torch.py",
+      "function": "__getattr__",
+      "status": "tested",
+      "tests": [
+        "mlguess/tests/test_audit_applications.py::test_application_optional_objective_delegates_without_optional_import",
+        "mlguess/tests/test_applications.py::test_cli_help_without_tuning_dependencies"
+      ],
+      "notes": "Lazy Objective factory forwarding tested; ordinary CLI --help has no ECHO/Optuna/W&B dependency.",
+      "unexecuted_branches": [
+        "real ECHO objective class integration"
+      ],
+      "reviewed": true
+    },
+    {
+      "file": "applications/predict_regressor_torch.py",
+      "function": "load_dataset_and_sampler",
+      "status": "tested",
+      "tests": [
+        "mlguess/tests/test_applications.py::test_regression_application_train_and_reload_on_cpu"
+      ],
+      "notes": "Synthetic custom dataset loaded in original order for all three splits.",
+      "unexecuted_branches": [
+        "arbitrary user datasets"
+      ],
+      "reviewed": true
+    },
+    {
+      "file": "applications/predict_regressor_torch.py",
+      "function": "main",
+      "status": "tested",
+      "tests": [
+        "mlguess/tests/test_applications.py::test_regression_application_train_and_reload_on_cpu",
+        "mlguess/tests/test_audit_applications.py::test_multi_rank_applications_reject_unsafe_csv_export_before_training"
+      ],
+      "notes": "CPU checkpoint reload and prediction exports match fitted model; compute device explicit; optional scaler/variance metadata handled. Multi-rank export rejects before prediction.",
+      "unexecuted_branches": [
+        "CUDA",
+        "FSDP",
+        "distributed execution",
+        "optional W&B tracking"
+      ],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/preprocessing.py",
+      "function": "load_preprocessor",
+      "status": "tested",
+      "tests": [
+        "mlguess/tests/test_audit_applications.py::test_preprocessor_honors_options_without_mutating_config",
+        "mlguess/tests/test_audit_applications.py::test_shipped_scaler_configuration_parameters_are_valid",
+        "mlguess/tests/test_audit_applications.py::test_group_symmetric_scaler_uses_requested_range",
+        "mlguess/tests/test_audit_applications.py::test_quantile_groups_do_not_import_unused_bridgescaler"
+      ],
+      "notes": "Constructor kwargs now honored. Standard, minmax, symmetric, robust and both quantile scaler constructors reviewed/tested; random_state and list feature_range supported. Invalid options give clear errors. Removed stale StandardScaler-only kwargs from MinMax config examples.",
+      "unexecuted_branches": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/preprocessing.py",
+      "function": "load_preprocessing",
+      "status": "tested",
+      "tests": [
+        "mlguess/tests/test_audit_applications.py::test_load_preprocessing_optional_options_and_no_fit",
+        "mlguess/tests/test_audit_applications.py::test_shipped_scaler_configuration_parameters_are_valid"
+      ],
+      "notes": "Optional/missing scalers return False; omitted params supported; no fitting or config mutation; all shipped YAML scaler configurations construct.",
+      "unexecuted_branches": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/splitting.py",
+      "function": "load_splitter",
+      "status": "tested",
+      "tests": [
+        "mlguess/tests/test_audit_applications.py::test_splitter_execution_and_partition_boundaries"
+      ],
+      "notes": "All seven splitters executed: no row overlap, group split separation, forward-only TimeSeriesSplit. Corrected random_state with shuffle=False error in stratified K-fold constructors without changing nonshuffled split semantics.",
+      "unexecuted_branches": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/keras/data.py",
+      "function": "_calendar_day",
+      "status": "tested",
+      "tests": [
+        "mlguess/tests/test_audit_applications.py::test_ptype_holds_out_whole_calendar_days"
+      ],
+      "notes": "Dates/Timestamps/ISO strings normalized to calendar day; missing dates explicitly rejected.",
+      "unexecuted_branches": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/keras/data.py",
+      "function": "load_ptype_uq",
+      "status": "tested",
+      "tests": [
+        "mlguess/tests/test_audit_applications.py::test_ptype_holds_out_whole_calendar_days"
+      ],
+      "notes": "Real partition logic with mocked parquet input: QC, mixed filtering, day-based group separation, heldout case dates and cutoff, split index validation. No test days enter train/validation.",
+      "unexecuted_branches": [
+        "production parquet reading and external datasets"
+      ],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/keras/data.py",
+      "function": "preprocess_data",
+      "status": "tested",
+      "tests": [
+        "mlguess/tests/test_audit_applications.py::test_preprocess_train_only_and_fixed_declared_class_axis",
+        "mlguess/tests/test_audit_applications.py::test_group_symmetric_scaler_uses_requested_range",
+        "mlguess/tests/test_audit_applications.py::test_quantile_groups_do_not_import_unused_bridgescaler"
+      ],
+      "notes": "Feature scalers fit exclusively to train. Output feature schema defines all classes, including a class missing from train. Validation outlier cannot change train statistics. Preserves row indices, supports empty heldout splits, executes real bridgescaler symmetric scaling; unused bridgescaler stays optional.",
+      "unexecuted_branches": [
+        "all possible group scaler/data combinations"
+      ],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/pbs.py",
+      "function": "_read_job_config",
+      "status": "tested",
+      "tests": [
+        "mlguess/tests/test_audit_applications.py::test_pbs_dry_run_quotes_paths_and_never_submits",
+        "mlguess/tests/test_audit_applications.py::test_distributed_pbs_dry_run_same_config_and_local_gpu_ids"
+      ],
+      "notes": "Reads YAML and resolves output directory with spaces. Configuration and shell command data stay separate.",
+      "unexecuted_branches": [],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/pbs.py",
+      "function": "_submit_or_return",
+      "status": "tested",
+      "tests": [
+        "mlguess/tests/test_audit_applications.py::test_pbs_dry_run_quotes_paths_and_never_submits",
+        "mlguess/tests/test_audit_applications.py::test_pbs_submission_branch_is_mocked_and_checks_exit_status"
+      ],
+      "notes": "Dry-run returns retained script. Submission uses argument-vector subprocess.run(check=True); qsub replaced with a mock in all tests.",
+      "unexecuted_branches": [
+        "actual PBS job submission"
+      ],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/pbs.py",
+      "function": "launch_pbs_jobs",
+      "status": "tested",
+      "tests": [
+        "mlguess/tests/test_audit_applications.py::test_pbs_dry_run_quotes_paths_and_never_submits",
+        "mlguess/tests/test_audit_applications.py::test_pbs_submission_branch_is_mocked_and_checks_exit_status",
+        "mlguess/tests/test_audit_applications.py::test_cli_pbs_receives_effective_overrides_without_submitting"
+      ],
+      "notes": "Generated script verified for valid PBS directive position and quoted paths/arguments. CLI passes effective overridden config. No external job submitted.",
+      "unexecuted_branches": [
+        "PBS/Casper runtime",
+        "site-specific environment initialization"
+      ],
+      "reviewed": true
+    },
+    {
+      "file": "mlguess/pbs.py",
+      "function": "launch_distributed_jobs",
+      "status": "tested",
+      "tests": [
+        "mlguess/tests/test_audit_applications.py::test_distributed_pbs_dry_run_same_config_and_local_gpu_ids"
+      ],
+      "notes": "Dry-run retains script and safely rewrites configuration when source equals target. CUDA ordinals are per node instead of total GPU count. Positive resources checked. Derecho environment is explicitly cluster-specific.",
+      "unexecuted_branches": [
+        "MPI/PBS/Derecho runtime",
+        "CUDA multi-node execution",
+        "actual job submission"
+      ],
+      "reviewed": true
+    }
+  ],
+  "cli_entrypoints": {
+    "files": [
+      "applications/predict_regressor_torch.py",
+      "applications/train_classifier_torch.py",
+      "applications/train_regressor_torch.py"
+    ],
+    "tests": [
+      "mlguess/tests/test_applications.py::test_cli_help_without_tuning_dependencies",
+      "mlguess/tests/test_audit_applications.py::test_regression_cli_records_effective_overrides_and_runs_small_cpu_data",
+      "mlguess/tests/test_audit_applications.py::test_cli_pbs_receives_effective_overrides_without_submitting"
+    ],
+    "notes": "Help tested in subprocesses; full regression CLI CPU training executed; all three PBS dispatch entrypoints execute against a mocked launcher. Actual overrides saved to YAML; prediction uses prediction.yml so training provenance is retained."
+  },
+  "configuration_changes": [
+    "config/pbs_example.yaml",
+    "config/evidential_regression.yml",
+    "config/evidential_regression_torch.yml",
+    "config/deterministic_regression.yml",
+    "config/gauss_regression.yml",
+    "config/surface_layer/mlp.yml",
+    "config/surface_layer/evidential.yml",
+    "config/surface_layer/gaussian.yml"
+  ],
+  "limitations": [
+    "Native Windows and macOS execution was not available; actual Linux spawn worker tested.",
+    "CUDA, NCCL, FSDP and real distributed collectives were not exercised by this audit.",
+    "Bundled application multi-rank prediction export is explicitly unsupported and raises before training; library distributed wrappers remain available.",
+    "PBS scripts are optional cluster-specific helpers. Dry-run and mocked submission only; no real external jobs submitted.",
+    "Arbitrary user-provided regression datasets own their split/scaler behavior. Managed precipitation preprocessing is train-only; external datasets cannot be assumed leakage-free.",
+    "Optional real ECHO/Optuna/W&B integrations not executed."
+  ]
+}

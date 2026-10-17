@@ -1,0 +1,48 @@
+{
+  "task": "regression",
+  "features": [
+    "x1",
+    "x2",
+    "x3"
+  ],
+  "targets": [
+    "response"
+  ],
+  "split_strategy": "random",
+  "seed": 42,
+  "best_epoch": 91,
+  "model_kwargs": {
+    "input_size": 3,
+    "output_size": 1,
+    "layer_size": [
+      32,
+      32
+    ],
+    "dr": [
+      0.0,
+      0.0
+    ],
+    "batch_norm": false,
+    "lng": true
+  },
+  "torch": "2.14.1+cpu",
+  "numpy": "2.4.6",
+  "training": {
+    "optimizer": "Adam",
+    "learning_rate": 0.003,
+    "batch_size": 64,
+    "max_epochs": 100,
+    "patience": 20,
+    "test_fraction": 0.2,
+    "validation_fraction": 0.2,
+    "group_column": null,
+    "time_column": null,
+    "regression_loss": "LipschitzMSELoss",
+    "regression_coef": 0.01,
+    "classification_loss": "EDLDigammaLoss",
+    "annealing_step": 20,
+    "classification_initial_head_bias": 1.0
+  },
+  "python": "3.11.17",
+  "miles_guess": "2025.1.0+py311.3"
+}

@@ -8,6 +8,7 @@ import properscoring as ps
 import pandas as pd
 import numpy as np
 from sklearn.metrics import mean_squared_error, r2_score
+from mlguess.regression_metrics import calculate_skill_score as _calculate_skill_score, _regression_arrays
 
 
 def compute_results(
@@ -21,6 +22,10 @@ def compute_results(
     legend_cols=["Friction_velocity", "Sensible_heat", "Latent_heat"],
     fn=None,
 ):
+    df = df.copy()
+    mu, aleatoric, epistemic = _regression_arrays(mu, aleatoric, epistemic)
+    if np.any(aleatoric < 0) or len(output_cols) != mu.shape[1] or len(df) != len(mu):
+        raise ValueError("Provide one nonnegative variance and mean per observation and output")
     # Set up some column names
     mu_cols = [f"{x}_pred" for x in output_cols]
     err_cols = [f"{x}_err" for x in output_cols]
@@ -102,22 +107,34 @@ def compute_coverage(df, col="var", quan="error"):
 
 
 def calibration_curve(df, col="var", quan="error", bins=10):
+    if not isinstance(bins, (int, np.integer)) or bins < 1:
+        raise ValueError("bins must be a positive integer")
+    if df.empty:
+        raise ValueError("At least one sample is required")
+    if f"{col}_cov" not in df:
+        df = compute_coverage(df, col=col, quan=quan)
     obs = df.sort_values(quan, ascending=True).copy()
-    obs[f"{quan}_cov"] = 1 - obs["dummy"].cumsum() / len(obs)
-    h, b1, b2 = np.histogram2d(obs[f"{col}_cov"], obs[f"{quan}_cov"], bins=bins)
-    cov_var = np.arange(0.025, 1.025, 1.0 / float(bins))
-    cov_mae = [np.average(cov_var, weights=hi) for hi in h]
-    cov_mae_std = [np.average((cov_mae - cov_var) ** 2, weights=hi) for hi in h]
-    cov_var_std = [np.average((cov_mae - cov_var) ** 2, weights=hi) for hi in h.T]
+    obs[f"{quan}_cov"] = 1 - np.arange(1, len(obs) + 1) / len(obs)
+    h, x_edges, y_edges = np.histogram2d(obs[f"{col}_cov"], obs[f"{quan}_cov"], bins=bins, range=((0, 1), (0, 1)))
+    cov_var = (x_edges[:-1] + x_edges[1:]) / 2
+    cov_error = (y_edges[:-1] + y_edges[1:]) / 2
+    row_counts, col_counts = h.sum(axis=1), h.sum(axis=0)
+    cov_mae = np.divide(h @ cov_error, row_counts, out=np.full(bins, np.nan), where=row_counts > 0)
+    cov_mae_std = np.sqrt(np.divide(np.sum(h * (cov_error[None, :] - cov_mae[:, None]) ** 2, axis=1), row_counts,
+                                    out=np.full(bins, np.nan), where=row_counts > 0))
+    col_means = np.divide(h.T @ cov_var, col_counts, out=np.full(bins, np.nan), where=col_counts > 0)
+    cov_var_std = np.sqrt(np.divide(np.sum(h.T * (cov_var[None, :] - col_means[:, None]) ** 2, axis=1), col_counts,
+                                    out=np.full(bins, np.nan), where=col_counts > 0))
     return cov_var, cov_mae, cov_mae_std, cov_var_std
 
 
 def calibration(
     dataframe, a_cols, e_cols, mae_cols, legend_cols, bins=10, save_location=False
 ):
+    dataframe = dataframe.copy()
     fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(10, 3.5))
-    colors = ["r", "g", "b"]
-    lcolors = ["pink", "lightgreen", "lightblue"]
+    colors = plt.get_cmap("tab10")(np.linspace(0, 1, len(a_cols)))
+    lcolors = colors
 
     for a_col, e_col, mae_col, col, lcol in zip(
         a_cols, e_cols, mae_cols, colors, lcolors
@@ -166,6 +183,10 @@ def plot_uncertainties(
     save_location=None,
 ):
 
+    ale, epi = [np.asarray(value, dtype=float) for value in (ale, epi)]
+    ale, epi = [value[:, None] if value.ndim == 1 else value for value in (ale, epi)]
+    if ale.ndim != 2 or ale.shape != epi.shape or ale.shape[1] != len(output_cols):
+        raise ValueError("Provide matching (samples, outputs) uncertainty arrays")
     width = 5 if len(output_cols) == 1 else 10
     height = 3.5 if len(output_cols) == 1 else 3.5
     fig, axs = plt.subplots(1, len(output_cols), figsize=(width, height))
@@ -182,14 +203,20 @@ def plot_uncertainties(
         epistemic = epi[:, i]
         
         # Remove any NaNs
-        aleatoric = aleatoric[np.isfinite(aleatoric)]
-        epistemic = epistemic[np.isfinite(epistemic)]
+        paired = np.isfinite(aleatoric) & np.isfinite(epistemic)
+        aleatoric, epistemic = aleatoric[paired], epistemic[paired]
+        if not paired.any():
+            raise ValueError("At least one finite paired uncertainty is required")
 
         # Create the 2D histogram plot
         my_range = [
             [np.percentile(epistemic, 5), np.percentile(epistemic, 95)],
             [np.percentile(aleatoric, 5), np.percentile(aleatoric, 95)],
         ]
+        inside = ((epistemic >= my_range[0][0]) & (epistemic <= my_range[0][1]) &
+                  (aleatoric >= my_range[1][0]) & (aleatoric <= my_range[1][1]))
+        if not inside.any():
+            my_range = [[epistemic.min(), epistemic.max()], [aleatoric.min(), aleatoric.max()]]
         hb = axs[i].hist2d(
             epistemic, aleatoric, bins=num_bins, cmap="inferno", range=my_range
         )
@@ -258,7 +285,7 @@ def plot_uncertainties(
 #             ]
 
 #             histogram = defaultdict(list)
-#             for bin_no in range(1, max(list(set(bin_range)))):
+#             for bin_no in range(1, len(bins)):
 #                 idx = np.where(bin_range == bin_no)
 #                 residuals = df[f"{col}_err"].values[idx] ** 2
 #                 mean = np.mean(residuals) ** (1 / 2)
@@ -319,22 +346,32 @@ def compute_skill_score(y_true, y_pred, y_std, num_bins=10):
     bins : array-like
         A 1D array of bin edges for the spread.
     """
-    # Bin the spread
+    y_true, y_pred, y_std = [np.asarray(x, dtype=float) for x in (y_true, y_pred, y_std)]
+    if any(x.ndim != 1 or x.shape != y_true.shape for x in (y_true, y_pred, y_std)):
+        raise ValueError("Spread/skill requires matching one-dimensional arrays")
+    finite = np.isfinite(y_true) & np.isfinite(y_pred) & np.isfinite(y_std)
+    y_true, y_pred, y_std = y_true[finite], y_pred[finite], y_std[finite]
+    if y_std.size == 0 or np.any(y_std < 0):
+        raise ValueError("Provide at least one finite nonnegative standard deviation")
+    if not isinstance(num_bins, (int, np.integer)) or num_bins < 1:
+        raise ValueError("num_bins must be a positive integer")
     spread_min, spread_max = np.percentile(y_std, [5, 95])
-    if spread_max - spread_min > 20:
+    if spread_min == spread_max:
+        delta = max(abs(spread_min) * 1e-6, 1e-6)
+        spread_min, spread_max = max(0, spread_min - delta), spread_max + delta
+    if spread_min > 0 and spread_max - spread_min > 20:
         bins = np.geomspace(spread_min, spread_max, num_bins + 1)
     else:
         bins = np.linspace(spread_min, spread_max, num_bins + 1)
     digitized = np.digitize(y_std, bins)
-
-    # Compute the mean RMSE for each bin
-    ss = np.zeros((num_bins,))
-    count = np.zeros((num_bins,))
+    digitized[y_std == bins[-1]] = num_bins
+    ss = np.full(num_bins, np.nan)
+    count = np.zeros(num_bins, dtype=int)
     for i in range(num_bins):
-        idx = np.where(digitized == i + 1)[0]
-        if len(idx) > 0:
-            ss[i] = np.sqrt(np.mean((y_true[idx] - y_pred[idx]) ** 2))
-            count[i] = len(idx)
+        selected = digitized == i + 1
+        if selected.any():
+            ss[i] = np.sqrt(np.mean((y_true[selected] - y_pred[selected]) ** 2))
+            count[i] = selected.sum()
     return ss, count, bins
 
 
@@ -362,11 +399,10 @@ def plot_skill_score(
         The number of bins to use for binning the spread.
     """
     num_outputs = len(output_cols)
-    if num_outputs == 1:
-        y_true = np.expand_dims(y_true, 1)
-        y_pred = np.expand_dims(y_pred, 1)
-        y_ale = np.expand_dims(y_ale, 1)
-        y_epi = np.expand_dims(y_epi, 1)
+    arrays = [np.asarray(x) for x in (y_true, y_pred, y_ale, y_epi)]
+    y_true, y_pred, y_ale, y_epi = [x[:, None] if x.ndim == 1 else x for x in arrays]
+    if any(x.ndim != 2 or x.shape != y_true.shape for x in (y_pred, y_ale, y_epi)) or y_true.shape[1] != num_outputs:
+        raise ValueError("Provide matching (samples, outputs) arrays")
 
     width = 10  # 5 if num_outputs == 1 else 10
     height = 3.5 if num_outputs == 1 else 7
@@ -386,27 +422,22 @@ def plot_skill_score(
         for i, std in enumerate([y_ale, y_epi, y_tot]):
 
             # Compute the skill score
-            not_nan = np.isfinite(y_pred[:, j]) & np.isfinite(std[:, j])
+            not_nan = np.isfinite(y_true[:, j]) & np.isfinite(y_pred[:, j]) & np.isfinite(std[:, j])
             
             ss, counts, bins = compute_skill_score(
                 y_true[:, j][not_nan], y_pred[:, j][not_nan], std[:, j][not_nan], num_bins
             )
 
             # Compute bin centers
-            x_centers = (bins[:-1] + bins[1:]) / 2
-            y_centers = ss
+            occupied = counts > 0
+            x_centers = ((bins[:-1] + bins[1:]) / 2)[occupied]
+            y_centers = ss[occupied]
+            counts = counts[occupied]
 
-            # Calculate range based on percentile of counts
-            my_range = [
-                [
-                    min(np.percentile(x_centers, 5), np.percentile(y_centers, 5)),
-                    np.percentile(x_centers, 95),
-                ],
-                [
-                    min(np.percentile(x_centers, 5), np.percentile(y_centers, 5)),
-                    np.percentile(y_centers, 95),
-                ],
-            ]
+            lower = min(x_centers.min(), y_centers.min())
+            upper = max(x_centers.max(), y_centers.max())
+            padding = max((upper - lower) * 0.05, abs(upper) * 1e-6, 1e-6)
+            my_range = [[lower - padding, upper + padding], [lower - padding, upper + padding]]
 
             _ = axs[j][i].hist2d(
                 x_centers,
@@ -455,7 +486,7 @@ def discard_fraction(df, output_cols, legend_cols, save_location=False, fontsize
         df = compute_coverage(df, col=f"{col}_t", quan=f"{col}_err")
     for k, col in enumerate(output_cols):
         results = defaultdict(list)
-        for percent in range(5, 105, 5):
+        for percent in range(0, 100, 5):
             c = df[f"{col}_e_cov"] >= percent / 100.0
             results["rmse_e"].append(np.square(df[c][f"{col}_err"]).mean() ** (1 / 2))
             c = df[f"{col}_a_cov"] >= percent / 100.0
@@ -499,17 +530,23 @@ def regression_attributes(df, output_cols, legend_cols, nbins=11, save_location=
         axs = [axs]
 
     for k, col in enumerate(output_cols):
-        upper = 1.01 * max(df[f"{col}_pred"])
-        lower = 0.99 * min(df[f"{col}_pred"])
-        bins = np.linspace(lower, upper, nbins)
-        bin_range = np.digitize(df[f"{col}_pred"].values, bins=bins)
+        paired = np.isfinite(df[f"{col}_pred"]) & np.isfinite(df[col])
+        data = df.loc[paired]
+        if data.empty:
+            raise ValueError("At least one finite paired observation is required")
+        upper, lower = data[f"{col}_pred"].max(), data[f"{col}_pred"].min()
+        padding = max((upper - lower) * 0.01, abs(upper) * 1e-6, 1e-6)
+        bins = np.linspace(lower - padding, upper + padding, nbins)
+        bin_range = np.digitize(data[f"{col}_pred"].values, bins=bins)
         bin_means = [
-            df[f"{col}_pred"][bin_range == i].mean() for i in range(1, len(bins))
+            data[f"{col}_pred"][bin_range == i].mean() for i in range(1, len(bins))
         ]
         histogram = defaultdict(list)
-        for bin_no in range(1, max(list(set(bin_range)))):
+        for bin_no in range(1, len(bins)):
             idx = np.where(bin_range == bin_no)
-            residuals = df[f"{col}"].values[idx]
+            residuals = data[col].values[idx]
+            if residuals.size == 0:
+                continue
             mean = np.mean(residuals)
             std = np.std(residuals)
             if np.isfinite(mean):
@@ -523,7 +560,7 @@ def regression_attributes(df, output_cols, legend_cols, nbins=11, save_location=
         axs[k].plot(histogram["bin"], histogram["bin"], "k--")
 
         # curve for the no-skill line
-        ave_true = np.mean(histogram["mean"])
+        ave_true = data[col].mean()
         ave_true_range = np.array([ave_true for x in histogram["mean"]])
         no_skill = [0.5 * x1 + 0.5 * ave_true for x1 in histogram["bin"]]
         axs[k].plot(histogram["bin"], no_skill, "b-")
@@ -704,61 +741,16 @@ def pit_figure_ensemble(
 
         
 def calculate_skill_score(y_true, y_pred, sigma, num_bins=10, log = False, filter_top_percentile = 5):
-    # Create a DataFrame from the provided data
-    try:
-        df = pd.DataFrame({'y_true': y_true[:,0], 'y_pred': y_pred[:,0], 'sigma': sigma[:,0]})
-    except:
-        df = pd.DataFrame({'y_true': y_true, 'y_pred': y_pred, 'sigma': sigma})
-        
-    # Dont use NaNs
-    df=df[np.isfinite(df['sigma'])].copy()
-    
-    # Create bins based on the 'sigma' column
-    if log:
-        df['bin'] = pd.cut(np.log(df['sigma']), bins=num_bins)
-    else:
-        df['bin'] = pd.cut(df['sigma'], bins=num_bins)
-        
-    # Calculate the threshold for the top N% based on 'sigma'
-    threshold = np.percentile(df['sigma'], 100 - filter_top_percentile)
-    
-    # Filter the DataFrame to keep only data points below the threshold
-    df = df[df['sigma'] <= threshold]
-    
-    # Initialize an empty DataFrame to store results
-    result_df = pd.DataFrame(columns=['bin', 'rmse', 'crps', 'count'])
-    
-    # Iterate over each bin
-    for bin_name, bin_group in df.groupby('bin'):
-        
-        if len(bin_group["y_true"]) ==0 or len(bin_group["y_pred"]) ==0:
-            continue
-        
-        # Calculate RMSE for the points within the bin
-        rmse = np.sqrt(mean_squared_error(bin_group['y_true'], bin_group['y_pred']))
-        
-        # Calculate R2 score for the points within the bin
-        crps = ps.crps_gaussian(bin_group['y_true'], mu=bin_group['y_pred'], sig=bin_group['sigma']).mean()
-        
-        # Get the left bound of the bin
-        bin_left = bin_name.left
-        if log:
-            bin_left = np.exp(bin_left)
-        
-        # Get the count of data points in the bin
-        count = len(bin_group)
-        
-        # Append the results to the result DataFrame
-        result_df = result_df._append({'bin': bin_left, 'rmse': rmse, 'crps': crps, 'count': count}, ignore_index=True)
-    
-    return result_df
+    """Compatibility wrapper for the shared Gaussian spread/skill calculation."""
+    return _calculate_skill_score(y_true, y_pred, sigma, num_bins=num_bins,
+                                  log=log, filter_top_percentile=filter_top_percentile)
 
 
 def rmse_crps_skill_scores(output_cols, df, mu, aleatoric, epistemic, titles, save_location=None):
     # Create a grid of subplots with the number of rows determined by the length of output_cols
     num_cols = len(output_cols)
     num_rows = 2  # You can adjust the number of rows as needed
-    fig, axes = plt.subplots(num_rows, num_cols, figsize=(10, 7))
+    fig, axes = plt.subplots(num_rows, num_cols, figsize=(10, 7), layout="constrained")
 
     # Loop over the length of output_cols
     for col in range(num_cols):
@@ -811,7 +803,6 @@ def rmse_crps_skill_scores(output_cols, df, mu, aleatoric, epistemic, titles, sa
         ax_crps.plot(result['bin'], result['bin'], c="k", ls="--")
 
     # Ensure proper spacing between subplots
-    plt.tight_layout()
     
     # Save
     if save_location:

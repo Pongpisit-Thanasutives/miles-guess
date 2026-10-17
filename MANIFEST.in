@@ -1,0 +1,9 @@
+include LICENSE README.md SCIENTIFIC_CHANGES.md VALIDATION.md UNCERTAINTY.md
+include environment*.yml
+recursive-include mlguess *.py VERSION
+recursive-include applications *.py
+recursive-include examples *.py
+recursive-include requirements *.txt
+recursive-include config *.yml *.yaml
+recursive-include docs *.md *.rst *.py *.png Makefile make.bat
+recursive-include .github *.yml

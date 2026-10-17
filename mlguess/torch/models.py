@@ -3,14 +3,13 @@ from torch.nn import init
 import torch
 import logging
 from torch.nn.utils import spectral_norm as SpectralNorm
-import warnings
 import random
 import numpy as np
 import os
-from mlguess.torch.checkpoint import load_model_state
+from mlguess.torch.checkpoint import load_model_state, load_state_dict
 from mlguess.torch.layers import LinearNormalGamma
+from mlguess.torch.mc_dropout import as_model_input, inference_context, monte_carlo_dropout, _scale_moments, _output_moments
 
-warnings.filterwarnings("ignore")
 logger = logging.getLogger(__name__)
 
 
@@ -46,8 +45,9 @@ def seed_everything(seed=1234):
     os.environ['PYTHONHASHSEED'] = str(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
-    torch.cuda.manual_seed(seed)
-    torch.backends.cudnn.benchmark = True
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.benchmark = False
     torch.backends.cudnn.deterministic = True
 
 
@@ -83,14 +83,15 @@ def init_weights(net, init_type='normal', init_gain=0.0, verbose=True):
         """
         classname = m.__class__.__name__
         if hasattr(m, 'weight') and (classname.find('Conv') != -1 or classname.find('Linear') != -1):
+            weight = getattr(m, 'weight_orig', m.weight)
             if init_type == 'normal':
-                init.normal_(m.weight.data, 0.0, init_gain)
+                init.normal_(weight.data, 0.0, init_gain)
             elif init_type == 'xavier':
-                init.xavier_normal_(m.weight.data, gain=init_gain)
+                init.xavier_normal_(weight.data, gain=init_gain)
             elif init_type == 'kaiming':
-                init.kaiming_normal_(m.weight.data, a=0, mode='fan_in')
+                init.kaiming_normal_(weight.data, a=0, mode='fan_in')
             elif init_type == 'orthogonal':
-                init.orthogonal_(m.weight.data, gain=init_gain)
+                init.orthogonal_(weight.data, gain=init_gain)
             else:
                 raise NotImplementedError('initialization method [%s] is not implemented' % init_type)
             if hasattr(m, 'bias') and m.bias is not None:
@@ -115,7 +116,7 @@ class DNN(nn.Module):
         dr (list of float): Dropout rates for each layer. Default is [0.5].
         batch_norm (bool): Whether to use batch normalization. Default is True.
         lng (bool): Whether to use LinearNormalGamma layer at the end. Default is False.
-        weight_init (bool): Whether to initialize weights. Default is False.
+        weight_init (bool): Use Kaiming initialization when True. Default is False.
         num_layers (int): Number of layers to create if layer_size is a single number. Default is None.
     """
 
@@ -135,16 +136,26 @@ class DNN(nn.Module):
 
         super(DNN, self).__init__()
         self.lng = lng
+        self.mc_output_kind = "nig" if lng else ("probabilities" if softmax else "regression")
 
-        if num_layers is not None and isinstance(layer_size, (int, float)):
-            layer_size = [layer_size] * num_layers
-            dr = [dr] * num_layers if isinstance(dr, (int, float)) else dr
+        if isinstance(layer_size, int):
+            layer_size = [layer_size] * (1 if num_layers is None else num_layers)
+        else:
+            layer_size = list(layer_size)
+        if isinstance(dr, (int, float)):
+            dr = [dr] * len(layer_size)
+        else:
+            dr = list(dr)
+            if len(dr) == 1:
+                dr *= len(layer_size)
+        if len(dr) < len(layer_size):
+            raise ValueError("dr must specify one dropout rate or a rate for each hidden layer")
 
         if len(layer_size) > 0:
             blocks = self.block(input_size, layer_size[0], dr[0], batch_norm)
             if len(layer_size) > 1:
                 for i in range(len(layer_size) - 1):
-                    blocks += self.block(layer_size[i], layer_size[i + 1], dr[i], batch_norm)
+                    blocks += self.block(layer_size[i], layer_size[i + 1], dr[i + 1], batch_norm)
             if lng:
                 blocks.append(LinearNormalGamma(layer_size[-1], output_size))
             else:
@@ -161,7 +172,7 @@ class DNN(nn.Module):
 
         self.fcn = nn.Sequential(*blocks)
         if weight_init:
-            self.apply(self.init_weights)
+            init_weights(self, init_type="kaiming", verbose=False)
 
     def block(self, input_size, output_size, dr, batch_norm):
         """Create a block of layers for the network.
@@ -195,54 +206,63 @@ class DNN(nn.Module):
         x = self.fcn(x)
         return x
 
-    def load_weights(self, weights_path: str) -> None:
+    def load_weights(self, weights_path: str, *, weights_only=True) -> None:
         """Load model weights from a file.
 
         Args:
-            weights_path (str): Path to the weights file (.pt).
+            weights_path (str or Path): A state dict or trainer checkpoint (.pt).
+            weights_only (bool): Use PyTorch's restricted loader by default. Set
+                False only for trusted legacy checkpoints requiring pickle.
+
+        Raises:
+            FileNotFoundError or RuntimeError: If loading fails. Errors are not
+                suppressed, so inference cannot silently use random weights.
 
         Returns:
             None
         """
         logger.info(f"Loading model weights from {weights_path}")
 
-        try:
-            checkpoint = torch.load(
-                weights_path,
-                map_location=lambda storage, loc: storage
-            )
-            self.load_state_dict(checkpoint["model_state_dict"])
-        except Exception as E:
-            logger.info(
-                f"Failed to load model weights at {weights_path} due to error {str(E)}"
-            )
+        checkpoint = load_state_dict(weights_path, weights_only=weights_only)
+        self.load_state_dict(checkpoint.get("model_state_dict", checkpoint))
 
     def predict(self, input, y_scaler=None, return_uncertainties=True, return_tuple=False):
-        """Make predictions with the model.
+        """Make predictions in evaluation mode without recording gradients.
+
+        NumPy inputs are converted to the model's dtype and device. Every
+        module's original training/evaluation state is restored afterwards.
 
         Args:
             input (torch.Tensor): Input tensor.
             y_scaler (optional, callable): A scaler to inverse transform predictions. Default is None.
             return_uncertainties (bool): Whether to return uncertainties along with predictions. Default is True.
-            return_tuple (bool): Whether to return the output as a tuple. Default is False.
+            return_tuple (bool): Retained for compatibility. Evidential outputs
+                remain tuples and deterministic outputs remain tensors.
 
         Returns:
             tuple or torch.Tensor:
-                - If `return_tuple` is True, returns a tuple (output).
-                - Otherwise, returns concatenated output tensor.
+                Evidential uncertainty predictions return (mu, aleatoric,
+                epistemic, total). With return_uncertainties=False, return the
+                raw forward output.
         """
-        output = self(input)
-        if return_uncertainties:
-            mu, aleatoric, epistemic, total = self.predict_uncertainty(output, y_scaler=y_scaler)
-            return mu, aleatoric, epistemic, total
-        return output
+        with inference_context(self):
+            output = self(as_model_input(input, self))
+            if return_uncertainties:
+                if not self.lng:
+                    raise ValueError("Uncertainty prediction requires lng=True; use return_uncertainties=False")
+                return self.predict_uncertainty(output, y_scaler=y_scaler)
+            return output
 
     def predict_uncertainty(self, input, y_scaler=None):
         """Estimate uncertainties of predictions.
 
         Args:
-            input (tuple of torch.Tensor): Tuple containing (mu, v, alpha, beta) tensors.
-            y_scaler (optional, callable): A scaler to inverse transform predictions. Default is None.
+            input: Iterable of (mu, v, alpha, beta) tensors, or a tensor
+                containing the four concatenated parameter blocks.
+            y_scaler: Fitted affine sklearn scaler for the target. The mean is
+                inverse-transformed and variances use the squared inverse slope.
+                Unsupported or nonlinear scalers raise TypeError; they require
+                distribution-specific uncertainty transformations.
 
         Returns:
             tuple: A tuple containing:
@@ -251,70 +271,47 @@ class DNN(nn.Module):
                 - epistemic (torch.Tensor): Epistemic uncertainty.
                 - total (torch.Tensor): Total uncertainty (aleatoric + epistemic).
         """
-        mu, v, alpha, beta = input
-        aleatoric = beta / (alpha - 1)
-        epistemic = beta / (v * (alpha - 1))
+        # Trainers historically pass a generator of detached parameters.
+        # Materialize only parameter iterables; never split a Tensor by rows.
+        if not isinstance(input, torch.Tensor):
+            input = tuple(input)
+        mu, aleatoric, epistemic, _ = _output_moments(input, "nig")
+        mu, aleatoric, epistemic = _scale_moments(mu, aleatoric, epistemic, y_scaler)
+        total = aleatoric + epistemic
+        if not all(torch.isfinite(value).all() for value in (mu, aleatoric, epistemic, total)):
+            raise ValueError("Predictive uncertainty moments must be finite; check parameter magnitudes and dtype")
+        return mu, aleatoric, epistemic, total
 
-        if len(mu.shape) == 1:
-            mu = mu.unsqueeze(1)
-            aleatoric = aleatoric.unsqueeze(1)
-            epistemic = epistemic.unsqueeze(1)
+    def predict_dropout(self, x, mc_forward_passes=10, batch_size=16, *,
+                        output_kind=None, y_scaler=None, return_dict=False):
+        """Predict an equal-weight Monte Carlo dropout mixture (ddof=0).
 
-        if y_scaler:
-            mu = mu.detach().cpu().numpy()
-            mu = y_scaler.inverse_transform(mu)
-            mu = torch.from_numpy(mu).to(aleatoric.device)
+        The architecture declares the default output kind: ``lng=True`` is
+        NIG regression, ``softmax=True`` is categorical probabilities, and
+        other DNNs are point regression. Set ``output_kind='logits'`` explicitly
+        for a classifier without a softmax output. See ``monte_carlo_dropout``
+        for all supported output distributions.
 
-            # Torch version of some of the sklearn scalers -- this needs updated later
-            # MinMaxScaler inverse transform
-            # if y_scaler:
-            #     min_val = torch.tensor(y_scaler.data_min_, device=mu.device)
-            #     max_val = torch.tensor(y_scaler.data_max_, device=mu.device)
-            #     mu = mu * (max_val - min_val) + min_val
-
-            for i in range(mu.shape[-1]):
-                aleatoric[:, i] *= self.training_var[i]
-                epistemic[:, i] *= self.training_var[i]
-
-        return mu, aleatoric, epistemic, aleatoric + epistemic
-
-    def predict_dropout(self, x, mc_forward_passes=10, batch_size=16):
-        """Perform Monte Carlo Dropout predictions.
-
-        Args:
-            x (torch.Tensor): Input tensor.
-            mc_forward_passes (int): Number of Monte Carlo forward passes. Default is 10.
-            batch_size (optional, int): Batch size for processing. Default is None.
-
-        Returns:
-            tuple: A tuple containing:
-                - pred_probs (numpy.ndarray): Mean predicted probabilities.
-                - aleatoric (numpy.ndarray): Aleatoric uncertainty.
-                - epistemic (numpy.ndarray): Epistemic uncertainty.
-                - entropy (numpy.ndarray): Entropy across multiple forward passes.
-                - mutual_info (numpy.ndarray): Mutual information across multiple forward passes.
+        Classification retains the five-tuple (mean, aleatoric, epistemic,
+        entropy, mutual_info). Regression returns (mean, aleatoric, epistemic,
+        total). ``return_dict=True`` exposes the within/between decomposition.
+        Estimated outputs are NumPy arrays. Point regression does not estimate
+        aleatoric or total predictive uncertainty: those outputs are None. Its
+        dictionary has aleatoric_available=False, with epistemic equal to the
+        between-pass variance.
         """
-        with torch.no_grad():
-            batches = np.array_split(x, np.ceil(x.shape[0] / batch_size).astype(int))
-            y_prob = torch.stack(
-                [
-                    torch.vstack([self(torch.FloatTensor(lx)) for lx in batches])
-                    for _ in range(mc_forward_passes)
-                ]
-            )
-        pred_probs = y_prob.mean(axis=0).numpy()
-        epistemic = y_prob.var(axis=0).numpy()
-        aleatoric = torch.mean(y_prob * (1.0 - y_prob), axis=0).numpy()
-        y_prob = y_prob.numpy()
-
-        # Calculating entropy across multiple MCD forward passes
-        epsilon = 1e-10  # A small value to avoid log(0)
-        entropy = -np.sum(pred_probs * np.log(np.maximum(pred_probs, epsilon)), axis=-1)
-        # Calculating mutual information across multiple MCD forward passes
-        mutual_info = entropy - np.mean(
-            np.sum(-y_prob * np.log(np.maximum(y_prob, epsilon)), axis=-1), axis=0
+        if batch_size < 1 or len(x) < 1:
+            raise ValueError("batch_size and the number of samples must be positive")
+        inputs = as_model_input(x, self)
+        result = monte_carlo_dropout(
+            inputs.split(batch_size), mc_forward_passes, self,
+            n_samples=len(inputs), output_kind=output_kind, y_scaler=y_scaler,
         )
-        return pred_probs, aleatoric, epistemic, entropy, mutual_info
+        if return_dict:
+            return result
+        if "entropy" in result:
+            return tuple(result[name] for name in ("mean", "aleatoric", "epistemic", "entropy", "mutual_info"))
+        return tuple(result[name] for name in ("mean", "aleatoric", "epistemic", "total"))
 
     @classmethod
     def from_config(cls, conf, device="cpu"):
@@ -338,21 +335,19 @@ class DNN(nn.Module):
 
 class CategoricalDNN(DNN):
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.mc_output_kind = "evidence"
+
     def calc_uncertainty(self, y_pred):
-        num_classes = y_pred.shape[-1]
-        evidence = torch.relu(y_pred)
-        alpha = evidence + 1
-        S = torch.sum(alpha, axis=1, keepdims=True)
-        u = num_classes / S
-        prob = alpha / S
-        epistemic = prob * (1 - prob) / (S + 1)
-        aleatoric = prob - prob ** 2 - epistemic
+        prob, aleatoric, epistemic, _ = _output_moments(y_pred, "evidence")
+        alpha = torch.relu(y_pred) + 1
+        u = y_pred.shape[-1] / alpha.sum(dim=-1, keepdim=True)
         return prob, u, aleatoric, epistemic
 
     def predict(self, x, return_uncertainties=True, **kwargs):
-        self.eval()
-        with torch.no_grad():
-            output = self(x)
+        with inference_context(self):
+            output = self(as_model_input(x, self))
             if return_uncertainties:
                 return self.calc_uncertainty(output)
             else:
@@ -361,8 +356,6 @@ class CategoricalDNN(DNN):
     def predict_uncertainty(self, input):
         return self.predict(input, return_uncertainties=True)
 
-    def predict_dropout(self, input):
-        raise NotImplementedError
 
 
 if __name__ == "__main__":

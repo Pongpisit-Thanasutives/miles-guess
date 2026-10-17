@@ -20,14 +20,10 @@ data:
   scaler_x:
     params:
       copy: true
-      with_mean: true
-      with_std: true
     type: quantile
   scaler_y:
     params:
       copy: true
-      with_mean: true
-      with_std: true
     type: normalize
   batch_size: &batch_size 5470 # Example batch size
   data_path: '/glade/p/cisl/aiml/ai2es/surfacelayer/cabauw_derived_data_20210720.csv'

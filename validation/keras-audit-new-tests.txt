@@ -1,0 +1,12 @@
+.........................................                                [100%]
+=============================== warnings summary ===============================
+mlguess/tests/test_audit_keras.py: 652 warnings
+  /workspace/scratch/d7d34632ac75/.venv311/lib/python3.11/site-packages/keras/src/backend/torch/core.py:276: DeprecationWarning: __array__ implementation doesn't accept a copy keyword, so passing copy=False failed. __array__ must implement 'dtype' and 'copy' keyword arguments. To learn more, see the migration guide https://numpy.org/devdocs/numpy_2_0_migration_guide.html#adapting-to-changes-in-the-copy-keyword
+    return np.array(x)
+
+mlguess/tests/test_audit_keras.py: 185 warnings
+  /workspace/scratch/d7d34632ac75/.venv311/lib/python3.11/site-packages/keras/src/backend/common/variables.py:252: DeprecationWarning: __array__ implementation doesn't accept a copy keyword, so passing copy=False failed. __array__ must implement 'dtype' and 'copy' keyword arguments. To learn more, see the migration guide https://numpy.org/devdocs/numpy_2_0_migration_guide.html#adapting-to-changes-in-the-copy-keyword
+    return np.array(self)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+41 passed, 837 warnings in 6.34s

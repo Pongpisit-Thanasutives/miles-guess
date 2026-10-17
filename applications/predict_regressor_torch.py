@@ -1,72 +1,41 @@
-import warnings
 import os
 import sys
 import yaml
-import wandb
-import shutil
 import logging
 import pandas as pd
-import importlib
 
 from pathlib import Path
 from argparse import ArgumentParser
 from collections import defaultdict
 
 import torch
-import torch.distributed as dist
 from torch.utils.data.distributed import DistributedSampler
 
 from mlguess.torch.distributed import distributed_model_wrapper
-from mlguess.pbs import launch_pbs_jobs, launch_distributed_jobs
 from mlguess.torch.checkpoint import load_model_state
 from mlguess.torch.trainer_regression import Trainer
 from mlguess.torch.regression_losses import LipschitzMSELoss
 from mlguess.torch.models import seed_everything, DNN
 from mlguess.regression_metrics import regression_metrics
 
-warnings.filterwarnings("ignore")
-
-os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
-os.environ["OMP_NUM_THREADS"] = "1"
-os.environ["MKL_NUM_THREADS"] = "1"
-
-# https://stackoverflow.com/questions/59129812/how-to-avoid-cuda-out-of-memory-in-pytorch
-os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
-
-
-def setup(rank, world_size, mode):
-    """
-    Initialize the process group for distributed training.
-
-    Args:
-        rank (int): The rank of the current process in the distributed training.
-        world_size (int): The total number of processes involved in distributed training.
-        mode (str): The mode of training (e.g., 'fsdp' or 'ddp').
-
-    Logs:
-        Information about the distributed training setup.
-    """
-
-    logging.info(f"Running {mode.upper()} on rank {rank} with world_size {world_size}.")
-    dist.init_process_group("nccl", rank=rank, world_size=world_size)
-
-
-def import_class_from_path(class_name, file_path):
-    """
-    Import a class from a file path.
-
-    Args:
-        class_name (str): The name of the class to import.
-        file_path (str): The file path of the module containing the class.
-
-    Returns:
-        type: The imported class.
-    """
-
-    spec = importlib.util.spec_from_file_location(class_name, file_path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return getattr(module, class_name)
+if __package__:
+    from ._common import (
+        resolve_device,
+        validate_application_run,
+        setup,
+        import_class_from_path,
+        cleanup_distributed,
+        add_regression_columns,
+    )
+else:
+    from _common import (
+        resolve_device,
+        validate_application_run,
+        setup,
+        import_class_from_path,
+        cleanup_distributed,
+        add_regression_columns,
+    )
 
 
 def load_dataset_and_sampler(conf, world_size, rank, split, seed=42):
@@ -107,16 +76,15 @@ def load_dataset_and_sampler(conf, world_size, rank, split, seed=42):
 
 def main(rank, world_size, conf, trial=False):
 
+    validate_application_run(conf, world_size)
+
     # convert $USER to the actual user name
-    conf['save_loc'] = os.path.expandvars(conf['save_loc'])
+    conf['save_loc'] = os.path.expanduser(os.path.expandvars(conf['save_loc']))
 
+    conf["trainer"].setdefault("mode", "none")
+    device = resolve_device(conf, rank)
     if conf["trainer"]["mode"] in ["fsdp", "ddp"]:
-        setup(rank, world_size, conf["trainer"]["mode"])
-
-    # infer device id from rank
-
-    device = torch.device(f"cuda:{rank % torch.cuda.device_count()}") if torch.cuda.is_available() else torch.device("cpu")
-    torch.cuda.set_device(rank % torch.cuda.device_count())
+        setup(rank, world_size, conf["trainer"]["mode"], device)
 
     # Config settings
     seed = 1000 if "seed" not in conf else conf["seed"]
@@ -124,7 +92,7 @@ def main(rank, world_size, conf, trial=False):
 
     train_batch_size = conf['trainer']['train_batch_size']
     valid_batch_size = conf['trainer']['valid_batch_size']
-    thread_workers = conf['trainer']['thread_workers']
+    thread_workers = conf['trainer'].get('thread_workers', 0)
     valid_thread_workers = conf['trainer']['valid_thread_workers'] if 'valid_thread_workers' in conf['trainer'] else thread_workers
 
     # load dataset and sampler
@@ -140,7 +108,7 @@ def main(rank, world_size, conf, trial=False):
         batch_size=train_batch_size,
         shuffle=False,
         sampler=train_sampler,
-        pin_memory=True,
+        pin_memory=(device.type == "cuda"),
         persistent_workers=True if thread_workers > 0 else False,
         num_workers=thread_workers,
         drop_last=False
@@ -151,7 +119,7 @@ def main(rank, world_size, conf, trial=False):
         batch_size=valid_batch_size,
         shuffle=False,
         sampler=valid_sampler,
-        pin_memory=True,
+        pin_memory=(device.type == "cuda"),
         num_workers=valid_thread_workers,
         drop_last=False
     )
@@ -172,7 +140,7 @@ def main(rank, world_size, conf, trial=False):
 
     # add the variance computed in the dataset to the model
 
-    m.training_var = train_dataset.training_var
+    m.training_var = getattr(train_dataset, "training_var", None)
 
     # have to send the module to the correct device first
 
@@ -184,7 +152,7 @@ def main(rank, world_size, conf, trial=False):
 
     # Load model weights
 
-    m = load_model_state(conf, m, device)
+    model = load_model_state(conf, model, device)
 
     # Evaluation loss
 
@@ -192,7 +160,7 @@ def main(rank, world_size, conf, trial=False):
 
     # Initialize a trainer object
 
-    trainer = Trainer(model, rank, module=(conf["trainer"]["mode"] == "ddp"))
+    trainer = Trainer(model, rank, module=(conf["trainer"]["mode"] == "ddp"), device=device)
 
     # Predict with the model
     splits = ["train", "valid", "test"]
@@ -206,7 +174,7 @@ def main(rank, world_size, conf, trial=False):
             dataloader,
             valid_criterion,
             regression_metrics,
-            train_dataset.y_scaler,
+            getattr(train_dataset, "y_scaler", None),
             split
         )
 
@@ -224,10 +192,7 @@ def main(rank, world_size, conf, trial=False):
         elif split == "test":
             df = test_loader.dataset.test_data
 
-        df["mu"] = mu
-        df["aleatoric"] = aleatoric
-        df["epistemic"] = epistemic
-        df["total_uncertainty"] = total
+        df = add_regression_columns(df, result, conf["data"].get("output_cols"))
 
         for key, values in metrics.items():
             if isinstance(values, list):
@@ -239,19 +204,21 @@ def main(rank, world_size, conf, trial=False):
     mets = pd.DataFrame.from_dict(all_results, orient='index')
     mets.to_csv(os.path.join(conf['save_loc'], "metrics.csv"))
 
+    if conf["trainer"]["mode"] in ["fsdp", "ddp"]:
+        cleanup_distributed()
     return result
 
 
 if __name__ == "__main__":
 
-    description = "Train a segmengation model on a hologram data set"
+    description = "Predict with an evidential PyTorch regressor"
     parser = ArgumentParser(description=description)
     parser.add_argument(
         "-c",
         "--config",
         dest="model_config",
         type=str,
-        default=False,
+        required=True,
         help="Path to the model configuration (yml) containing your inputs.",
     )
     parser.add_argument(
@@ -273,15 +240,18 @@ if __name__ == "__main__":
         "-m",
         "--mode",
         type=str,
-        default=0,
+        default=None,
+        choices=["none", "ddp", "fsdp"],
         help="Update the config to use none, DDP, or FSDP",
     )
+    parser.add_argument("--device", choices=["cpu", "cuda", "auto"], help="Override trainer.device (CPU is supported on macOS and Windows).")
     args = parser.parse_args()
     args_dict = vars(args)
     config = args_dict.pop("model_config")
     launch = int(args_dict.pop("launch"))
     use_wandb = int(args_dict.pop("wandb"))
-    mode = str(args_dict.pop("mode"))
+    mode = args_dict.pop("mode")
+    device_override = args_dict.pop("device")
 
     # Set up logger to print stuff
     root = logging.getLogger()
@@ -296,22 +266,30 @@ if __name__ == "__main__":
 
     # Load the configuration and get the relevant variables
     with open(config) as cf:
-        conf = yaml.load(cf, Loader=yaml.FullLoader)
+        conf = yaml.safe_load(cf)
 
     # Create directories if they do not exist and copy yml file
-    save_loc = os.path.expandvars(conf["save_loc"])
+    save_loc = os.path.expanduser(os.path.expandvars(conf["save_loc"]))
     os.makedirs(save_loc, exist_ok=True)
 
-    if not os.path.exists(os.path.join(save_loc, "model.yml")):
-        shutil.copy(config, os.path.join(save_loc, "model.yml"))
-
     # Update config using override options
+    conf["trainer"].setdefault("mode", "none")
+    if device_override is not None:
+        conf["trainer"]["device"] = device_override
     if mode and mode in ["none", "ddp", "fsdp"]:
         logging.info(f"Setting the running mode to {mode}")
         conf["trainer"]["mode"] = mode
 
+    # Record effective overrides, so checkpoint reload uses the same mode/device.
+    effective_config = os.path.join(save_loc, "prediction.yml")
+    with open(effective_config, "w", encoding="utf-8") as stream:
+        yaml.safe_dump(conf, stream, sort_keys=False)
+    if launch:
+        config = effective_config
+
     # Launch PBS jobs
     if launch:
+        from mlguess.pbs import launch_pbs_jobs, launch_distributed_jobs
         # Where does this script live?
         script_path = Path(__file__).absolute()
         if conf['pbs']['queue'] == 'casper':
@@ -322,11 +300,12 @@ if __name__ == "__main__":
             launch_distributed_jobs(config, script_path)
         sys.exit()
 
-    if use_wandb:  # this needs updated
+    if use_wandb:
+        import wandb
         wandb.init(
             # set the wandb project where this run will be logged
             project="Derecho parallelism",
-            name=f"Worker {os.environ['RANK']} {os.environ['WORLD_SIZE']}",
+            name=f"Worker {os.environ.get('RANK', '0')} {os.environ.get('WORLD_SIZE', '1')}",
             # track hyperparameters and run metadata
             config=conf
         )

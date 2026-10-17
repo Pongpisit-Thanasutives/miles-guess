@@ -26,14 +26,10 @@ data:
     #     type: "quantile"
     #     params:
     #         copy: true
-    #         with_mean: true
-    #         with_std: true
     # scaler_y:
     #     type: "symmetric"
     #     params:
     #         copy: true
-    #         with_mean: true
-    #         with_std: true
     # split_col: "day"
     # train_size: 0.9
 

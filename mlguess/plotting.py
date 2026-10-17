@@ -2,8 +2,6 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.metrics import confusion_matrix
-from cartopy import crs as ccrs
-from cartopy import feature as cfeature
 
 
 def plot_confusion_matrix(y_true, y_pred, classes, model_name, normalize=False, title=None, cmap=plt.cm.Blues, filename=None):
@@ -15,10 +13,17 @@ def plot_confusion_matrix(y_true, y_pred, classes, model_name, normalize=False, 
         else:
             title = 'Confusion Matrix'
 
-    cm = confusion_matrix(y_true, y_pred)
+    labels = np.arange(len(classes))
+    observed = np.unique(np.concatenate([np.asarray(y_true), np.asarray(y_pred)]))
+    if not np.isin(observed, labels).all():
+        # Also support classes supplied as the actual string/numeric labels.
+        labels = np.asarray(classes)
+        if not np.isin(observed, labels).all():
+            raise ValueError("classes must identify every observed label")
+    cm = confusion_matrix(y_true, y_pred, labels=labels)
     
     if normalize:
-        cm = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
+        cm = np.divide(cm, cm.sum(axis=1, keepdims=True), out=np.zeros_like(cm, dtype=float), where=cm.sum(axis=1, keepdims=True) != 0)
 
     fig, ax = plt.subplots(figsize=(5,5))
     im = ax.imshow(cm, interpolation='nearest', cmap=cmap)
@@ -60,6 +65,9 @@ def coverage_figures(
     test_data, output_cols, colors=None, title=None, save_location=None
 ):
 
+    test_data = test_data.copy()
+    if colors is None:
+        colors = plt.get_cmap("tab10")(np.linspace(0, 1, len(output_cols)))
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 3.5), sharey="col")
 
     test_data["accuracy"] = (
@@ -69,7 +77,7 @@ def coverage_figures(
     _test_data_sorted = compute_cov(test_data, col="pred_conf", quan="accuracy")
     ax1.plot(_test_data_sorted["pred_conf_cov"], _test_data_sorted["cu_accuracy"])
 
-    num_classes = test_data["true_label"].nunique()
+    num_classes = len(output_cols)
     for label in range(num_classes):
         cond = test_data["true_label"] == label
         _test_data_sorted = compute_cov(
@@ -122,6 +130,10 @@ def conus_plot(df,
                title = "Predicted", 
                save_path = False):
     
+    from cartopy import crs as ccrs
+    from cartopy import feature as cfeature
+
+    df = df.copy()
     lat_n = 54.0
     lat_s = 20.0
     lon_w = -63.0

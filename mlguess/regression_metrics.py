@@ -1,199 +1,113 @@
+"""Regression scores and Gaussian spread/skill summaries."""
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 import numpy as np
 import pandas as pd
 import properscoring as ps
-from mlguess.pit import pit_deviation_skill_score, pit_histogram
-import traceback
-# from mlguess.regression_uq import calculate_skill_score
+from mlguess.pit import pit_deviation_skill_score
+
+
+def _regression_arrays(y_true, y_pred, total=None):
+    arrays = [np.asarray(x, dtype=float) for x in (y_true, y_pred)]
+    if total is not None:
+        arrays.append(np.asarray(total, dtype=float))
+    arrays = [x[:, None] if x.ndim == 1 else x for x in arrays]
+    if any(x.ndim != 2 or x.shape != arrays[0].shape or x.size == 0 for x in arrays):
+        raise ValueError("Targets, predictions and variances must have matching (samples, targets) shapes")
+    if any(not np.all(np.isfinite(x)) for x in arrays):
+        raise ValueError("Targets, predictions and variances must be finite")
+    if total is not None and np.any(arrays[2] < 0):
+        raise ValueError("Predictive variance must be nonnegative")
+    return arrays
+
+
+def _gaussian_crps(y_true, mu, sigma):
+    """Gaussian CRPS including its exact zero-spread (absolute error) limit."""
+    y_true, mu, sigma = np.broadcast_arrays(y_true, mu, sigma)
+    result = np.abs(y_true - mu).astype(float)
+    positive = sigma > 0
+    result[positive] = ps.crps_gaussian(y_true[positive], mu=mu[positive], sig=sigma[positive])
+    return result
 
 
 def regression_metrics(y_true, y_pred, total=None, split="val"):
-    """Compute common regression metrics for continuous data.
+    """Compute scores for 1-D or multioutput targets; ``total`` is variance.
 
-    Parameters:
-    y_true (array-like): True target values.
-    y_pred (array-like): Predicted target values.
-
-    Returns:
-    dict: A dictionary containing common regression metrics.
+    Undefined R-squared scores (fewer than two samples or occupied spread bins)
+    are reported as NaN, rather than a synthetic numerical penalty.
     """
-    metrics = {}
-
-    # Calculate Mean Squared Error (MSE)
+    arrays = _regression_arrays(y_true, y_pred, total)
+    y_true, y_pred = arrays[:2]
     mse = mean_squared_error(y_true, y_pred)
-    metrics[f'{split}_mse'] = mse
-
-    # Calculate Root Mean Squared Error (RMSE)
-    rmse = np.sqrt(mse)
-    metrics[f'{split}_rmse'] = rmse
-
-    # Calculate Mean Absolute Error (MAE)
-    mae = mean_absolute_error(y_true, y_pred)
-    metrics[f'{split}_mae'] = mae
-
-    # Calculate R-squared (R2) score
-    r2 = r2_score(y_true, y_pred)
-    metrics[f'{split}_r2'] = r2
-
-    # Calculate Mean Absolute Percentage Error (MAPE)
-    mape = np.mean(np.abs((y_true - y_pred) / np.maximum(y_true, 1e-8))) * 100
-    metrics[f'{split}_mape'] = mape
-
+    metrics = {
+        f"{split}_mse": mse,
+        f"{split}_rmse": np.sqrt(mse),
+        f"{split}_mae": mean_absolute_error(y_true, y_pred),
+        f"{split}_r2": r2_score(y_true, y_pred) if len(y_true) > 1 else np.nan,
+        f"{split}_mape": np.mean(np.abs(y_true - y_pred) / np.maximum(np.abs(y_true), 1e-8)) * 100,
+    }
     if total is not None:
-
-        # Add PIT skill-score
+        total = arrays[2]
+        sigma = np.sqrt(total)
         pitd = []
-        for i, col in enumerate(range(y_true.shape[1])):
-            try:
-                # Ensure y_true, y_pred, and total are NumPy arrays
-                y_true_np = np.asarray(y_true[:, i])
-                y_pred_np = np.asarray(y_pred[:, i])
-                total_np = np.asarray(total[:, i])
-        
-                # Filter out infinity values
-                finite_mask = np.isfinite(y_true_np) & np.isfinite(y_pred_np) & np.isfinite(total_np)
-                y_true_finite = y_true_np[finite_mask]
-                y_pred_finite = y_pred_np[finite_mask]
-                total_finite = total_np[finite_mask]
-        
-                # Calculate PIT histogram
-                bin_counts, bin_edges = pit_histogram(
-                    y_true_finite,
-                    np.stack([y_pred_finite, np.sqrt(total_finite)], -1),
-                    pred_type="gaussian",
-                    bins=np.linspace(0, 1, 10),
-                )
-                bin_width = bin_edges[1] - bin_edges[0]
-        
-                # Normalize the bin heights
-                bin_heights = bin_counts / bin_width
-                bin_heights /= sum(bin_heights)
-                y_pred_stack = np.stack([y_pred_finite, np.sqrt(total_finite)], -1)
-                pit_score = pit_deviation_skill_score(y_true_finite, y_pred_stack, pred_type="gaussian", bins=10)
-        
-            except ValueError:
-                pit_score = -1
-            pitd.append(pit_score)
-            metrics[f"{split}_pitd_{col}"] = pit_score
-
+        for col in range(y_true.shape[1]):
+            score = pit_deviation_skill_score(
+                y_true[:, col], np.stack([y_pred[:, col], sigma[:, col]], -1),
+                pred_type="gaussian", bins=10,
+            )
+            metrics[f"{split}_pitd_{col}"] = score
+            pitd.append(score)
         metrics[f"{split}_pitd"] = np.mean(pitd)
-        metrics[f"{split}_crps"] = ps.crps_gaussian(y_true, mu=y_pred, sig=total).mean()
-
-        # result = calculate_skill_score(
-        #     y_true,
-        #     y_pred,
-        #     total,
-        #     num_bins=50,
-        #     log=True,
-        #     filter_top_percentile = 5
-        # )
-
-        # metrics[f"{split}_crps_ss"] = r2_score(result['bin'], result['crps'], sample_weight=result["count"])
-        # metrics[f"{split}_rmse_ss"] = r2_score(result['bin'], result['rmse'], sample_weight=result["count"])
-
-        try:
-            rmse_ss = rmse_crps_skill_scores(y_true, y_pred, total, filter_top_percentile=0)
-        except:
-            print(traceback.print_exc())
-            rmse_ss = {
-                "r2_rmse": -100000,
-                "r2_crps": -100000
-            }
-
-        metrics[f"{split}_r2_rmse_sigma"] = rmse_ss["r2_rmse"]
-        metrics[f"{split}_r2_crps_sigma"] = rmse_ss["r2_crps"]
-
+        metrics[f"{split}_crps"] = _gaussian_crps(y_true, y_pred, sigma).mean()
+        spread_scores = rmse_crps_skill_scores(y_true, y_pred, total)
+        metrics[f"{split}_r2_rmse_sigma"] = spread_scores["r2_rmse"]
+        metrics[f"{split}_r2_crps_sigma"] = spread_scores["r2_crps"]
     return metrics
 
 
 def rmse_crps_skill_scores(y, mu, total, filter_top_percentile=0):
-    # Create a grid of subplots with the number of rows determined by the length of output_cols
-    r2_rmse_dict = {}
-    r2_crps_dict = {}
-
-    # Loop over the length of output_cols
-    num_cols = y.shape[-1]
-    for col in range(y.shape[-1]):
-        result = calculate_skill_score(
-            y[:, col],
-            mu[:, col],
-            np.sqrt(total)[:, col],
-            num_bins=100,
-            log=True,
-            filter_top_percentile=filter_top_percentile
-        )
-
-        r2_rmse = r2_score(result['bin'], result['rmse'])
-        r2_crps = r2_score(result['bin'], result['crps'])
-        r2_rmse_dict[col] = r2_rmse
-        r2_crps_dict[col] = r2_crps
-
-        # if np.isnan(r2_rmse):
-        #     r2_rmse = -10
-
-        # # Check if r2_crps is NaN and replace it with -10
-        # if np.isnan(r2_crps):
-        #     r2_crps = -10
-
-    # Calculate the average of r2_rmse and r2_crps
-    avg_r2_rmse = sum(r2_rmse_dict.values()) / num_cols
-    avg_r2_crps = sum(r2_crps_dict.values()) / num_cols
-
-    # Create and return a dictionary with average r2_rmse and r2_crps
-    avg_scores_dict = {'r2_rmse': avg_r2_rmse, 'r2_crps': avg_r2_crps}
-    return avg_scores_dict
+    """Average each output's R-squared between binned spread and RMSE/CRPS."""
+    y, mu, total = _regression_arrays(y, mu, total)
+    scores = {"r2_rmse": [], "r2_crps": []}
+    for col in range(y.shape[1]):
+        result = calculate_skill_score(y[:, col], mu[:, col], np.sqrt(total[:, col]),
+                                      num_bins=100, log=True,
+                                      filter_top_percentile=filter_top_percentile)
+        for key, metric in (("r2_rmse", "rmse"), ("r2_crps", "crps")):
+            scores[key].append(r2_score(result["bin"], result[metric]) if len(result) > 1 else np.nan)
+    return {key: np.mean(value) for key, value in scores.items()}
 
 
 def calculate_skill_score(y_true, y_pred, sigma, num_bins=10, log=False, filter_top_percentile=0):
-    # Create a DataFrame from the provided data
-    try:
-        df = pd.DataFrame({'y_true': y_true[:, 0], 'y_pred': y_pred[:, 0], 'sigma': sigma[:, 0]})
-    except Exception:
-        df = pd.DataFrame({'y_true': y_true, 'y_pred': y_pred, 'sigma': sigma})
+    """Bin one target's Gaussian standard deviations and summarize RMSE/CRPS.
 
-    # Dont use NaNs
+    Paired nonfinite samples are omitted. A zero standard deviation retains
+    its exact deterministic score; a small positive value is used only for
+    logarithmic bin assignment. Multioutput data must be handled per target.
+    """
+    arrays = [np.asarray(x, dtype=float) for x in (y_true, y_pred, sigma)]
+    arrays = [x[:, 0] if x.ndim == 2 and x.shape[1] == 1 else x for x in arrays]
+    if any(x.ndim != 1 or x.shape != arrays[0].shape for x in arrays):
+        raise ValueError("Provide matching one-dimensional targets, predictions and standard deviations")
+    if not isinstance(num_bins, (int, np.integer)) or num_bins < 1:
+        raise ValueError("num_bins must be a positive integer")
+    if not 0 <= filter_top_percentile < 100:
+        raise ValueError("filter_top_percentile must be in [0, 100)")
+    df = pd.DataFrame(dict(zip(("y_true", "y_pred", "sigma"), arrays)))
     df = df.replace([np.inf, -np.inf], np.nan).dropna()
-
-    # Add a small constant to sigma to avoid log(0) issues
-    epsilon = 1e-10
-    df['sigma'] = df['sigma'] + epsilon
-
-    # Create bins based on the 'sigma' column
-    if log:
-        df['bin'] = pd.cut(np.log(df['sigma']), bins=num_bins)
-    else:
-        df['bin'] = pd.cut(df['sigma'], bins=num_bins)
-
-    # Calculate the threshold for the top N% based on 'sigma'
-    threshold = np.percentile(df['sigma'], 100 - filter_top_percentile)
-
-    # Filter the DataFrame to keep only data points below the threshold
-    df = df[df['sigma'] <= threshold]
-
-    # Initialize an empty DataFrame to store results
-    result_df = pd.DataFrame(columns=['bin', 'rmse', 'crps', 'count'])
-
-    # Iterate over each bin
-    for bin_name, bin_group in df.groupby('bin'):
-
-        if len(bin_group["y_true"]) == 0 or len(bin_group["y_pred"]) == 0:
-            continue
-
-        # Calculate RMSE for the points within the bin
-        rmse = np.sqrt(mean_squared_error(bin_group['y_true'], bin_group['y_pred']))
-
-        # Calculate R2 score for the points within the bin
-        crps = ps.crps_gaussian(bin_group['y_true'], mu=bin_group['y_pred'], sig=bin_group['sigma']).mean()
-
-        # Get the left bound of the bin
-        bin_left = bin_name.left
-        if log:
-            bin_left = np.exp(bin_left)
-
-        # Get the count of data points in the bin
-        count = len(bin_group)
-
-        # Append the results to the result DataFrame
-        result_df = result_df._append({'bin': bin_left, 'rmse': rmse, 'crps': crps, 'count': count}, ignore_index=True)
-
-    return result_df
+    if np.any(df["sigma"] < 0):
+        raise ValueError("Standard deviations must be nonnegative")
+    if df.empty:
+        raise ValueError("At least one finite paired sample is required")
+    spread = np.log(np.maximum(df["sigma"], 1e-10)) if log else df["sigma"]
+    df["bin"] = pd.cut(spread, bins=num_bins)
+    threshold = np.percentile(df["sigma"], 100 - filter_top_percentile)
+    df = df[df["sigma"] <= threshold]
+    records = []
+    for bin_name, group in df.groupby("bin", observed=True):
+        records.append({
+            "bin": np.exp(bin_name.left) if log else bin_name.left,
+            "rmse": np.sqrt(mean_squared_error(group["y_true"], group["y_pred"])),
+            "crps": _gaussian_crps(group["y_true"], group["y_pred"], group["sigma"]).mean(),
+            "count": len(group),
+        })
+    return pd.DataFrame.from_records(records, columns=["bin", "rmse", "crps", "count"])

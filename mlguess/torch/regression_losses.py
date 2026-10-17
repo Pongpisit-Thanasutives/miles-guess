@@ -208,7 +208,7 @@ class EvidentialMarginalLikelihood(torch.nn.modules.loss._Loss):
             (Tensor) Negative log marginal likelihood of EvidentialNet
 
         """
-        pi = torch.tensor(np.pi)
+        pi = nu.new_tensor(np.pi)
         x1 = torch.log(pi / (nu + tol)) * 0.5
         x2 = -alpha * torch.log(2. * beta * (1. + nu) + tol)
         x3 = (alpha + 0.5) * torch.log(nu * (target - gamma) ** 2 + 2. * beta * (1. + nu) + tol)
@@ -263,7 +263,9 @@ class LipschitzMSELoss(torch.nn.Module):
     and a modified MSE term.
 
     Args:
-        tol (float, optional): Tolerance value to avoid division by zero. Defaults to 1e-8.
+        tol (float, optional): Legacy compatibility argument, retained but unused.
+            The published implementation uses fixed stabilizers in the component
+            functions; changing this argument does not alter them. Defaults to 1e-8.
         coef (float, optional): Coefficient for the regularization term. Defaults to 0.1.
         reduction (str, optional): Specifies the method to reduce the loss over the batch. Can be 'mean', 'sum', or 'none'. Defaults to 'mean'.
     """

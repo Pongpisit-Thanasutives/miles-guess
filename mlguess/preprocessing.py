@@ -1,55 +1,51 @@
-from sklearn.preprocessing import StandardScaler, MinMaxScaler, RobustScaler, QuantileTransformer
+"""Construct unfitted preprocessing transforms from configuration."""
+
+from collections.abc import Mapping
 import logging
 
+from sklearn.preprocessing import StandardScaler, MinMaxScaler, RobustScaler, QuantileTransformer
 
 logger = logging.getLogger(__name__)
 
 
-def load_preprocessor(stype, params, seed=1000):
-    # ignoring the **params argument for now for ease of using ECHO
-    if stype == "standard":
-        return StandardScaler()
-    elif stype == "normalize":
-        return MinMaxScaler((0, 1))
-    elif stype == "symmetric":
-        return MinMaxScaler((-1, 1))
-    elif stype == "robust":
-        return RobustScaler()
-    elif stype == "quantile":
-        return QuantileTransformer(
-            n_quantiles=1000,
-            random_state=seed,
-            output_distribution="normal"
-        )
-    elif stype == "quantile-uniform":
-        return QuantileTransformer(
-            n_quantiles=1000,
-            random_state=seed,
-            output_distribution="uniform"
-        )
-    else:
-        raise ValueError(
-            "Preprocessing type not recognized. Select from standard, normalize, symmetric, robust, quantile, or quantile-uniform"
-        )
+def load_preprocessor(stype, params=None, seed=1000):
+    """Return an unfitted scaler, honoring explicitly supplied constructor options.
+
+    Quantile transforms use ``seed`` unless ``random_state`` is supplied in
+    ``params``. Unsupported options raise an informative error rather than being
+    silently discarded. Fit the returned object on training data only.
+    """
+    if params is not None and not isinstance(params, Mapping):
+        raise TypeError("Scaler params must be a mapping or None")
+    choices = {
+        "standard": (StandardScaler, {}),
+        "normalize": (MinMaxScaler, {"feature_range": (0, 1)}),
+        "symmetric": (MinMaxScaler, {"feature_range": (-1, 1)}),
+        "robust": (RobustScaler, {}),
+        "quantile": (QuantileTransformer, {"n_quantiles": 1000, "random_state": seed, "output_distribution": "normal"}),
+        "quantile-uniform": (QuantileTransformer, {"n_quantiles": 1000, "random_state": seed, "output_distribution": "uniform"}),
+    }
+    if stype not in choices:
+        raise ValueError(f"Unknown preprocessing type {stype!r}; choose from {', '.join(choices)}")
+    constructor, defaults = choices[stype]
+    options = {**defaults, **({} if params is None else params)}
+    if "feature_range" in options:
+        options["feature_range"] = tuple(options["feature_range"])
+    try:
+        return constructor(**options)
+    except TypeError as exc:
+        raise TypeError(f"Invalid parameters for {stype!r} preprocessing: {exc}") from exc
 
 
 def load_preprocessing(conf, seed=1000):
-    if "scaler_x" not in conf["data"]:
-        input_scaler = False
-        logger.info("Loading input scaler: None")
-    else:
-        scaler_type = conf["data"]["scaler_x"]["type"]
-        scaler_params = conf["data"]["scaler_x"]["params"]
-        logger.info(f"Loading input scaler: {scaler_type}")
-        input_scaler = load_preprocessor(scaler_type, scaler_params, seed)
-
-    if "scaler_y" not in conf["data"]:
-        output_scaler = False
-        logger.info("Loading output scaler: None")
-    else:
-        scaler_type = conf["data"]["scaler_y"]["type"]
-        scaler_params = conf["data"]["scaler_y"]["params"]
-        logger.info(f"Loading output scaler: {scaler_type}")
-        output_scaler = load_preprocessor(scaler_type, scaler_params, seed)
-
-    return input_scaler, output_scaler
+    """Construct input/target scalers without fitting either on any split."""
+    scalers = []
+    for name in ("scaler_x", "scaler_y"):
+        spec = conf["data"].get(name)
+        if spec is None or spec is False:
+            logger.info("Loading %s: None", name)
+            scalers.append(False)
+        else:
+            logger.info("Loading %s: %s", name, spec["type"])
+            scalers.append(load_preprocessor(spec["type"], spec.get("params", {}), seed))
+    return tuple(scalers)
