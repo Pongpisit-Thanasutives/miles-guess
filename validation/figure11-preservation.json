@@ -1,0 +1,31 @@
+{
+  "baseline": "2025.1.0+py311.5",
+  "revision": "2025.1.0+py311.6",
+  "checks": {
+    "existing_core": {
+      "count": 37,
+      "changed": []
+    },
+    "data": {
+      "count": 2,
+      "changed": []
+    },
+    "config": {
+      "count": 13,
+      "changed": []
+    },
+    "regression_example.ipynb": {
+      "existing_cells_unchanged": true,
+      "added_cells": 2
+    },
+    "regression_example_torch.ipynb": {
+      "existing_cells_unchanged": true,
+      "added_cells": 2
+    },
+    "evidential_learning_your_data.ipynb": {
+      "existing_cells_unchanged": true,
+      "added_cells": 2
+    }
+  },
+  "new_module": "mlguess/diurnal.py"
+}

@@ -1,0 +1,18 @@
+{
+  "baseline_version": "2025.1.0+py311.4",
+  "new_version": "2025.1.0+py311.5",
+  "verified": {
+    "core_library_python": {
+      "count": 37,
+      "changed_files": []
+    },
+    "bundled_datasets": {
+      "count": 2,
+      "changed_files": []
+    },
+    "configuration_files": {
+      "count": 13,
+      "changed_files": []
+    }
+  }
+}

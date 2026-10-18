@@ -1,0 +1,25 @@
+{
+  "notebooks": [
+    {
+      "notebook": "/workspace/scratch/d7d34632ac75/miles-guess/notebooks/evidential_learning_your_data.ipynb",
+      "code_cells": 10,
+      "figures": 2,
+      "runtime_seconds": 39.464,
+      "saved": true
+    },
+    {
+      "notebook": "/workspace/scratch/d7d34632ac75/miles-guess/notebooks/dna_example_torch.ipynb",
+      "code_cells": 11,
+      "figures": 0,
+      "runtime_seconds": 0.031,
+      "saved": false
+    }
+  ],
+  "plot_semantics": "Actual timestamps where supplied, independently configured from data split and features. Naive source timestamps stay naive; aware timestamps normalized to UTC. No lines or filled polygons join observations. Predicted target value is the fallback horizontal coordinate when no time exists.",
+  "models_and_splits": "Unchanged",
+  "dna_limit": "Real checkpoint and labeled test dataset remain unavailable; default guarded notebook executes without BERT download. Optional mock evaluations cover time and no-time branches.",
+  "tests": {
+    "focused_pytest": "29 passed in 6.44s",
+    "custom_csv_branches": "multi-target regression and classification passed"
+  }
+}

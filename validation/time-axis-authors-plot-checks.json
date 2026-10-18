@@ -1,0 +1,21 @@
+{
+  "test_fixture": "Three unsorted dates, including a date outside the seven-day calendar window; no training and no generated deliverable figures.",
+  "checks": [
+    {
+      "notebook": "regression_example.ipynb",
+      "timestamp_coordinates_match": true,
+      "stable_chronological_sort_and_calendar_window": true,
+      "vertical_intervals_only": true,
+      "no_connecting_lines": true,
+      "concise_date_formatter": true
+    },
+    {
+      "notebook": "regression_example_torch.ipynb",
+      "timestamp_coordinates_match": true,
+      "stable_chronological_sort_and_calendar_window": true,
+      "vertical_intervals_only": true,
+      "no_connecting_lines": true,
+      "concise_date_formatter": true
+    }
+  ]
+}

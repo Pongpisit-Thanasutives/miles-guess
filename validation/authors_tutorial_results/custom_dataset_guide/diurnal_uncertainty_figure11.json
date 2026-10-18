@@ -1,0 +1,18 @@
+{
+  "bin_minutes": 10,
+  "clock_timezone": null,
+  "clock_convention": "source clock",
+  "uncertainty_aggregation": "sqrt(mean(per-observation variance))",
+  "weighting": "equal weight per observation",
+  "test_observations": 10592,
+  "target_names": [
+    "friction_velocity:surface:m_s-1"
+  ],
+  "target_labels": [
+    "Friction velocity"
+  ],
+  "target_units": [
+    "m/s"
+  ],
+  "uses_all_test_rows": true
+}

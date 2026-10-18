@@ -1,0 +1,56 @@
+{
+  "notebooks": [
+    {
+      "notebook": "/workspace/scratch/d7d34632ac75/miles-guess/notebooks/regression_example_torch.ipynb",
+      "code_cells": 23,
+      "figures": 3,
+      "runtime_seconds": 55.95,
+      "saved": true
+    },
+    {
+      "notebook": "/workspace/scratch/d7d34632ac75/miles-guess/notebooks/regression_example.ipynb",
+      "code_cells": 10,
+      "figures": 6,
+      "runtime_seconds": 14.419,
+      "saved": true
+    }
+  ],
+  "temporal_view": "First seven calendar days of the held-out period, selected by timestamp only; vertical predictive intervals and separate means/observations; no connecting lines across gaps.",
+  "timezone": "Unspecified in source; no timezone assumed",
+  "training_and_metrics": "Original author data, configuration, splits, budgets and complete-test evaluation unchanged",
+  "existing_tests": "11 passed",
+  "visual_review": "All five changed temporal panels reviewed; actual date labels and missing-date gaps are visible; no clipping or overlapping axis labels.",
+  "previous_metrics_comparisons": [
+    {
+      "previous": "validation/authors_tutorial_results/regression_example_torch/test_metrics.csv",
+      "new": "outputs/authors_regression_torch/test_metrics.csv",
+      "metrics_equal": true
+    },
+    {
+      "previous": "validation/authors_keras_metrics/authors_regression_evidential_test_metrics.csv",
+      "new": "notebooks/outputs/authors_regression/evidential_test_metrics.csv",
+      "metrics_equal": true
+    },
+    {
+      "previous": "validation/authors_keras_metrics/authors_regression_gaussian_dropout_test_metrics.csv",
+      "new": "notebooks/outputs/authors_regression/gaussian_dropout_test_metrics.csv",
+      "metrics_equal": true
+    },
+    {
+      "previous": "validation/authors_keras_metrics/authors_regression_gaussian_test_metrics.csv",
+      "new": "notebooks/outputs/authors_regression/gaussian_test_metrics.csv",
+      "metrics_equal": true
+    },
+    {
+      "previous": "validation/authors_keras_metrics/authors_regression_deterministic_test_metrics.csv",
+      "new": "notebooks/outputs/authors_regression/deterministic_test_metrics.csv",
+      "metrics_equal": true
+    },
+    {
+      "previous": "validation/authors_keras_metrics/authors_regression_ensemble_test_metrics.csv",
+      "new": "notebooks/outputs/authors_regression/ensemble_test_metrics.csv",
+      "metrics_equal": true
+    }
+  ],
+  "docs_copy_identical": true
+}

@@ -1,0 +1,27 @@
+{
+  "notebook": {
+    "notebook": "/workspace/scratch/d7d34632ac75/miles-guess/notebooks/evidential_learning_your_data.ipynb",
+    "code_cells": 11,
+    "figures": 3,
+    "runtime_seconds": 42.742,
+    "saved": true
+  },
+  "addition": "Optional Figure11-style diurnal composite; all pre-existing code and training cells unchanged",
+  "reference": "Schreck et al. (2024), Figure 11; https://doi.org/10.1175/AIES-D-23-0093.1",
+  "all_held_out_rows": true,
+  "bin_minutes": 10,
+  "uncertainty_aggregation": "sqrt(mean(per-observation physical-unit conditional variance))",
+  "excludes": "Between-observation predicted-mean variance; not a time-bin mixture uncertainty or interval",
+  "custom_csv_branches": "Multi-target regression without clock time and classification executed; optional diurnal composite skipped as intended",
+  "data_and_models": "Unchanged authors Cabauw data, split, architecture, and one-pass training; does not claim to reproduce the paper trained-model results",
+  "exports": [
+    "diurnal_uncertainty_figure11.png",
+    "diurnal_uncertainty_figure11.svg",
+    "diurnal_uncertainty_figure11.csv",
+    "diurnal_uncertainty_figure11.json"
+  ],
+  "unchanged_metrics_vs_previous_delivery": {
+    "sha256": "423149293fe89241562e3fb2eac2efe69e07818b068b00d268915a3da03b1068",
+    "identical": true
+  }
+}

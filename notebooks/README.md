@@ -61,6 +61,31 @@ of memory; it has not been replaced by a smaller network.
 
 ## Interpretation and scope
 
+The regression notebooks also include a diurnal composite in the style of
+Figure 11 of [Schreck et al. (2024)](https://doi.org/10.1175/AIES-D-23-0093.1).
+All held-out dates are grouped into 10-minute clock-time bins. Blue triangles
+show the mean observations, orange squares the mean predictions, green circles
+aleatoric SD, and red pentagons epistemic SD. Following the authors' code, the
+SD curves are `sqrt(mean(component_variance))` in each bin. They are neither
+standard errors of the plotted means nor complete temporal-mixture SDs.
+Empty bins remain gaps; CSV exports include the number of observations in every
+bin. PNG and SVG exports accompany the figure. The custom-data guide uses this
+view only for regression data with actual clock timestamps, and explains when
+diurnal grouping is appropriate. `mlguess.diurnal.plot_diurnal_uncertainty`
+can make one panel per available target without changing the fitted model.
+The Keras example keeps the full linear plot and adds a labelled symlog
+companion because its original short training run has extreme epistemic SD;
+both views use identical values.
+
+Temporal prediction and uncertainty plots use real timestamps with readable
+date ticks. A display window is chosen by calendar time, independently of model
+errors; metrics still cover the complete held-out set. Interval bars and
+separate markers avoid joining unrelated observations across gaps or series.
+For your data, supply the plotting-time column when available. Without time,
+use a meaningful variable such as the predicted mean, rather than a row index
+or rank. Training progress uses epochs/batches; calibration, confusion matrices,
+and physical-variable diagnostics retain their meaningful axes.
+
 Scalers fit training data only. New test-set summaries do not select epochs,
 settings, thresholds, or models in the restored originals. The custom-data guide
 separately illustrates validation-based selection. Report data version, split,

@@ -1,0 +1,18 @@
+{
+  "scope": [
+    "notebooks/shap.ipynb cell 23",
+    "notebooks/paper_figures_regression.ipynb cells 45, 49, 51, 57"
+  ],
+  "checks": {
+    "shap": "Real timestamps required, unequal batches retain each observation, correct paired sorting and timezone labels; index/missing/unaligned metadata rejected.",
+    "paper_selected_day": "True datetime spacing and paired sorting; sensible heat label corrected to match selected quantity.",
+    "paper_daily_summaries": "Original mean/median aggregation retained; time-of-day displayed as physical hours with robust locators and sparse-time fixture checks.",
+    "stale_outputs": "Cleared in all changed plotting cells.",
+    "notebook_format": "Both notebooks validated."
+  },
+  "test_command": "KERAS_BACKEND=torch MPLBACKEND=Agg python -m pytest mlguess/tests/test_notebook_external_time_axes.py -q",
+  "visual_inspection": "Inspected all four rendered QA fixture plots; corrected overlapping labels on the five-panel plot and re-rendered/reviewed it. These are minimal plotting fixtures, not author experiments or research results.",
+  "fixture_images": "/workspace/scratch/d7d34632ac75/time-axis-external-fixtures",
+  "full_notebook_execution": "Not performed: these research notebooks require external experiment files/checkpoints and SHAP dependencies, beyond bundled authors data. No external experiment data, configurations or model results changed.",
+  "pytest_result": "9 passed in 2.30s"
+}

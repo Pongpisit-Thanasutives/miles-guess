@@ -1,0 +1,33 @@
+{
+  "reference": {
+    "title": "Evidential Deep Learning: Enhancing Predictive Uncertainty Estimation for Earth System Science Applications",
+    "authors": "Schreck et al.",
+    "year": 2024,
+    "doi": "10.1175/AIES-D-23-0093.1",
+    "figure": 11,
+    "pdf_page": 16,
+    "supplied_pdf_sha256": "61308d8a62da6de50f51ad5179674adb82bc0a157146d03863598c70fb8b8f21"
+  },
+  "independent_review": {
+    "verdict": "approved; no blocking scientific or visual issues",
+    "source_comparison": "Original paper_figures_regression.ipynb cells 54\u201357 group by time of day, take means, then square root of grouped component variances.",
+    "observed_and_predicted": "Arithmetic mean over all test observations in each 10-minute source-clock bin",
+    "uncertainty": "sqrt(mean(per-observation component variance)); RMS conditional SD",
+    "not_added": "Between-observation predicted-mean variance; no redefinition of LoTV uncertainty",
+    "visual_conventions": [
+      "blue triangles: truth",
+      "orange squares: prediction",
+      "green circles: aleatoric SD",
+      "red pentagons: epistemic SD",
+      "HH:MM clock ticks; independent target panels; physical units"
+    ],
+    "preservation": [
+      "all existing model/data/split/training cells unchanged",
+      "native 10-minute Cabauw clock alignment",
+      "source timezone unspecified; none invented",
+      "missing bins break curves",
+      "no smoothing, clipping, invented targets or tuned results"
+    ]
+  },
+  "target_scope": "Bundled examples contain friction velocity only; the helper supports genuine multi-target predictions without training additional models."
+}

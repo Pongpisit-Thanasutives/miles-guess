@@ -1,0 +1,23 @@
+{
+  "notebooks": [
+    {
+      "notebook": "notebooks/regression_example_torch.ipynb",
+      "executed_code_cells": 24,
+      "figures": 4
+    },
+    {
+      "notebook": "notebooks/regression_example.ipynb",
+      "executed_code_cells": 11,
+      "figures": 8
+    },
+    {
+      "notebook": "notebooks/evidential_learning_your_data.ipynb",
+      "executed_code_cells": 11,
+      "figures": 3
+    }
+  ],
+  "code_cells": 46,
+  "figures": 15,
+  "docs_copy_identical": true,
+  "all_new_plots_visually_reviewed": true
+}

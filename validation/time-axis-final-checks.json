@@ -1,0 +1,47 @@
+{
+  "notebooks": [
+    {
+      "file": "notebooks/regression_example_torch.ipynb",
+      "format_valid": true,
+      "new_error_outputs": false,
+      "inherited_external_notebook_error_cells": []
+    },
+    {
+      "file": "notebooks/regression_example.ipynb",
+      "format_valid": true,
+      "new_error_outputs": false,
+      "inherited_external_notebook_error_cells": []
+    },
+    {
+      "file": "notebooks/evidential_learning_your_data.ipynb",
+      "format_valid": true,
+      "new_error_outputs": false,
+      "inherited_external_notebook_error_cells": []
+    },
+    {
+      "file": "notebooks/dna_example_torch.ipynb",
+      "format_valid": true,
+      "new_error_outputs": false,
+      "inherited_external_notebook_error_cells": []
+    },
+    {
+      "file": "notebooks/shap.ipynb",
+      "format_valid": true,
+      "new_error_outputs": false,
+      "inherited_external_notebook_error_cells": [
+        20
+      ]
+    },
+    {
+      "file": "notebooks/paper_figures_regression.ipynb",
+      "format_valid": true,
+      "new_error_outputs": false,
+      "inherited_external_notebook_error_cells": [
+        47
+      ]
+    }
+  ],
+  "docs_copy_identical": true,
+  "custom_guide_test_metrics_match_py311_4": true,
+  "external_notebook_outputs": "Unexecuted external research cells retain prior outputs, including the original SHAP attribution-cell error; modified plotting cells have stale outputs cleared."
+}

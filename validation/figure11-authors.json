@@ -1,0 +1,93 @@
+{
+  "notebooks": [
+    {
+      "notebook": "/workspace/scratch/d7d34632ac75/miles-guess/notebooks/regression_example_torch.ipynb",
+      "code_cells": 24,
+      "figures": 4,
+      "runtime_seconds": 60.776,
+      "saved": true
+    },
+    {
+      "notebook": "/workspace/scratch/d7d34632ac75/miles-guess/notebooks/regression_example.ipynb",
+      "code_cells": 11,
+      "figures": 8,
+      "runtime_seconds": 18.496,
+      "saved": true
+    }
+  ],
+  "plot": "All held-out observations grouped by 10-minute source-clock bin, Figure 11 style; observed/predicted means and sqrt(mean conditional variance) for aleatoric/epistemic uncertainty.",
+  "paper": "Schreck et al. (2024), Evidential Deep Learning: Enhancing Predictive Uncertainty Estimation for Earth System Science Applications, DOI 10.1175/AIES-D-23-0093.1, Fig. 11",
+  "timezone": "Unspecified in source; no timezone assumed",
+  "training_and_metrics": "Original author data, configurations, splits, budgets, and complete-test evaluation unchanged",
+  "target": "Original friction_velocity:surface:m_s-1 only; no untrained targets added",
+  "existing_tests": "11 passed",
+  "previous_metrics_comparisons": [
+    {
+      "previous": "validation/authors_tutorial_results/regression_example_torch/test_metrics.csv",
+      "new": "outputs/authors_regression_torch/test_metrics.csv",
+      "metrics_equal": true
+    },
+    {
+      "previous": "validation/authors_keras_metrics/authors_regression_evidential_test_metrics.csv",
+      "new": "notebooks/outputs/authors_regression/evidential_test_metrics.csv",
+      "metrics_equal": true
+    },
+    {
+      "previous": "validation/authors_keras_metrics/authors_regression_gaussian_dropout_test_metrics.csv",
+      "new": "notebooks/outputs/authors_regression/gaussian_dropout_test_metrics.csv",
+      "metrics_equal": true
+    },
+    {
+      "previous": "validation/authors_keras_metrics/authors_regression_gaussian_test_metrics.csv",
+      "new": "notebooks/outputs/authors_regression/gaussian_test_metrics.csv",
+      "metrics_equal": true
+    },
+    {
+      "previous": "validation/authors_keras_metrics/authors_regression_deterministic_test_metrics.csv",
+      "new": "notebooks/outputs/authors_regression/deterministic_test_metrics.csv",
+      "metrics_equal": true
+    },
+    {
+      "previous": "validation/authors_keras_metrics/authors_regression_ensemble_test_metrics.csv",
+      "new": "notebooks/outputs/authors_regression/ensemble_test_metrics.csv",
+      "metrics_equal": true
+    }
+  ],
+  "composite_summaries": [
+    {
+      "notebook": "regression_example_torch",
+      "bins": 144,
+      "test_observations": 10592,
+      "min_bin_count": 57,
+      "max_bin_count": 91,
+      "min_epistemic_sd": 0.1166371383679664,
+      "max_epistemic_sd": 0.1557347570492235,
+      "csv": "validation/figure11-results/regression_example_torch/figure11_diurnal_composite.csv"
+    },
+    {
+      "notebook": "regression_example",
+      "bins": 144,
+      "test_observations": 7188,
+      "min_bin_count": 28,
+      "max_bin_count": 67,
+      "min_epistemic_sd": 0.7000189122798529,
+      "max_epistemic_sd": 1248.4693849059515,
+      "csv": "validation/figure11-results/regression_example/figure11_diurnal_composite.csv"
+    }
+  ],
+  "docs_copy_identical": true,
+  "existing_notebook_sources_preserved": "All existing cell sources compared with the previously delivered ZIP and unchanged; two cells appended per notebook.",
+  "visual_review": {
+    "torch": "Reviewed high-resolution PNG: four curves, HH:MM labels, units and legend clear.",
+    "keras": "Linear plot retains the full epistemic range. Additional symlog companion reviewed: four curves visible, same unmodified values, explicit symmetric-log title and \u00b10.1 m/s linear threshold; HH:MM labels and units legible."
+  },
+  "keras_companion": {
+    "scale": "symlog",
+    "linear_region": "\u00b10.1 m/s",
+    "data": "Same line coordinates as full linear figure; no clipping or omitted observations",
+    "execution": "Full Keras notebook rerun to regenerate companion from actual predictions; scientific settings unchanged",
+    "log": "validation/figure11-authors-keras-companion.log",
+    "metric_tables_match_prior_run": true,
+    "margins": "Recomputed from all line data in the symmetric-log scale; no manual limits."
+  }
+}

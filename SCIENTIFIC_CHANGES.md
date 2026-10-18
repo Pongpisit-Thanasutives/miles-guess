@@ -1,7 +1,22 @@
 # Scientific preservation and verified corrections
 
 Base: ai2es/miles-guess commit `69775bef5d65b50e53692d860092e0295b4e7d23`.
-Local revision: `2025.1.0+py311.4`; this is not an upstream release.
+Local revision: `2025.1.0+py311.6`; this is not an upstream release.
+
+The py311.6 update adds diurnal-composite visualisation following Figure 11 of
+Schreck et al. (2024), DOI `10.1175/AIES-D-23-0093.1`. Within each 10-minute
+clock-time bin, truth and prediction curves are arithmetic means; each
+uncertainty curve is the square root of the mean of its per-observation
+variance. This matches the authors' plotting code. It is an RMS conditional
+standard deviation, not a confidence interval for a bin mean or the complete
+variance of a mixture across observations. No training or uncertainty
+decomposition calculation changes. The new `mlguess.diurnal` module supports
+one panel per available target and exports bin counts with the plotted values.
+
+The py311.5 update changes visualisation axes and their supporting metadata.
+Temporal observations use actual timestamps; interval panels without timestamps
+use predicted values instead of observation ranks. It preserves the authors'
+data, models, splits, training choices, and the corrected core library.
 
 The model families, Normal-Inverse-Gamma (NIG) and Dirichlet parameterizations,
 evidential regularizers, and Lipschitz-modified MSE equations are retained.

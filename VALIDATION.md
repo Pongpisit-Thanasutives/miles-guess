@@ -1,6 +1,6 @@
 # Validation report
 
-Date: **2026-10-18**. Local revision: **2025.1.0+py311.4**.
+Date: **2026-10-18**. Local revision: **2025.1.0+py311.6**.
 Upstream base: `69775bef5d65b50e53692d860092e0295b4e7d23`.
 
 This revision restores the authors' examples and extends their held-out
@@ -8,7 +8,58 @@ assessment. It does not replace their datasets or architectures with generated
 examples. `AUTHORS_NOTEBOOK_UPDATES.md` documents preservation and the specific
 compatibility/calculation errors corrected.
 
-## Current validation
+## Figure 11-style update (py311.6)
+
+Figure 11 was inspected directly in the supplied paper (PDF page 16), and its
+aggregation was compared with the authors' original plotting code. New plots
+group every test observation by 10-minute time of day, displaying mean truth,
+mean predictions, and square root of mean aleatoric/epistemic variances.
+The additive `mlguess.diurnal` helper leaves existing scientific implementations
+unchanged. Analytical tests distinguish the authors' statistic from mean SD
+and from the variance of a temporal mixture, and cover multiple targets,
+timestamp alignment, empty bins, units, and invalid inputs.
+
+Execution, numerical and visual-validation records are under
+`validation/figure11-*`. Figures and bin-count tables are exported in PNG, SVG,
+and CSV formats. The current tutorials genuinely predict friction velocity;
+no sensible/latent-heat model or results were invented to fill three panels.
+
+**99 focused tests passed**, including 45 analytical/plotting cases for the new
+helper. The three affected notebooks executed **46 code cells and 15 figures**.
+Their existing test metrics match the previous delivery; the 37 pre-existing
+core Python files, two datasets, all 13 configuration files, and every existing
+notebook cell source are unchanged. Only a new section is appended to each of
+the three regression notebooks. The custom CSV branches also execute and skip
+the diurnal view when clock timestamps are unavailable or the task is
+classification. Full-suite and hardware validation retain their earlier scope.
+
+The original short Keras run produces very large epistemic SD. Its new linear
+figure preserves that complete range. A separately labelled symlog companion
+uses the same values, with a linear region below 0.1 m/s, so the remaining curves
+can also be read. Neither view clips, smooths, or changes the predictions.
+
+## Time-axis update (py311.5)
+
+The current update uses actual timestamps for temporal prediction/uncertainty
+panels and meaningful predicted-value axes where timestamps are unavailable.
+Calendar windows and disconnected interval bars preserve irregular spacing and
+avoid implying measurements across gaps. Training epochs/batches and existing
+calibration, physical-variable and class axes remain appropriate.
+
+The three affected author-data notebooks were re-executed: **43 code cells
+and 11 figures**. The guarded DNA notebook also executed its 11 cells without
+external model downloads. **54 focused tests passed**, covering timestamp/value
+alignment, date validation, timezone handling, and the preserved original
+notebook settings. Both custom CSV branches passed. All six author-regression
+metric tables match the previous delivery. Records are in
+`validation/time-axis-*`, including `time-axis-focused-tests.log`.
+The 37 core library Python files, both datasets, and all 13 configuration files
+are byte-identical to py311.4. Naive source timestamps are not assigned an
+invented timezone; explicit timezone-aware inputs are handled separately.
+External paper-figure and SHAP plotting helpers are checked with isolated
+plotting fixtures; the full external experiments remain unexecuted.
+
+## Previous complete validation (py311.4)
 
 Executed on **Linux x86-64, Python 3.11.17, PyTorch 2.14.1+cpu,
 NumPy 2.4.6, Keras 3.15.1 with its Torch backend**. The complete test suite
@@ -31,7 +82,7 @@ reviewed, with 352 named function bodies exercised. Its coverage measurements
 belong to py311.3; this revision did not recompute coverage or claim newly tested
 hardware/backend branches. The core implementations were preserved.
 
-## Author-data notebook execution
+## Original author-data executions (py311.4)
 
 Both bundled datasets are byte-identical to upstream. The seven relevant YAML
 model dictionaries also match upstream. All original notebook training-budget
@@ -45,7 +96,7 @@ overrides are retained. No architecture was reduced to make CPU execution easier
 | `classifier_example.ipynb` | Authors' bundled precipitation sample and original split. Preserved the 6024-unit, four-layer deterministic classifier, balanced training/weights, and original evidential model; 1/5 epochs. | 5 / 3 |
 | `evidential_learning_your_data.ipynb` | Default changed to the authors' Cabauw data, original Torch model, preprocessing, year split and one-pass budget. | 10 / 2 |
 
-These five notebooks contain **68 executed code cells and 18 figures**, with
+At py311.4, these five notebooks contained **68 executed code cells and 18 figures**, with
 saved outputs and no error outputs. The figures were visually inspected.
 Keras documentation copies match their corresponding restored notebooks; the
 Keras and PyTorch examples are distinct, not aliases.

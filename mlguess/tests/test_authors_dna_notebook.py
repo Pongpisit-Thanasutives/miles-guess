@@ -17,6 +17,7 @@ import pytest
 torch = pytest.importorskip("torch")
 from torch import nn
 import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 from sklearn.preprocessing import StandardScaler
 
 from mlguess.evaluation import evaluate_classifier, evaluate_nig
@@ -67,7 +68,7 @@ def notebook_namespace(monkeypatch):
             return dict(input_ids=tokens, attention_mask=torch.ones_like(tokens), token_type_ids=torch.zeros_like(tokens))
 
     monkeypatch.setitem(sys.modules, "transformers", SimpleNamespace(BertModel=FakeBert, BertTokenizer=FakeTokenizer))
-    namespace = dict(np=np, pd=pd, plt=plt, torch=torch, nn=nn, Path=Path,
+    namespace = dict(np=np, pd=pd, plt=plt, mdates=mdates, torch=torch, nn=nn, Path=Path,
                      contextmanager=contextmanager, PRETRAINED_NAME="bert-base-uncased",
                      LOCAL_FILES_ONLY=True, DEVICE=torch.device("cpu"), tol=1e-8,
                      relu_evidence=relu_evidence, edl_digamma_loss=edl_digamma_loss,
@@ -191,7 +192,8 @@ def test_original_loss_combination_gradients(notebook_namespace):
         assert torch.isfinite(loss) and torch.isfinite(logits.grad).all()
 
 
-def test_optional_evaluation_branches_with_mock_interfaces(notebook_namespace, tmp_path):
+@pytest.mark.parametrize("use_time", [False, True])
+def test_optional_evaluation_branches_with_mock_interfaces(notebook_namespace, tmp_path, use_time):
     """Fixture data checks code paths, not scientific BERT or DNA performance."""
     ns = notebook_namespace
     classifier = ns["DNABert"](10)
@@ -204,7 +206,11 @@ def test_optional_evaluation_branches_with_mock_interfaces(notebook_namespace, t
               test_tokenizer=ns["load_tokenizer"](), CLASSIFIER_CHECKPOINT=class_path,
               REGRESSOR_CHECKPOINT=reg_path, SEQUENCE_COLUMN="sequence", CLASS_COLUMN="class_id",
               REGRESSION_COLUMNS=["target"], REGRESSION_TARGETS_TRANSFORMED=False,
-              TARGET_SCALER_PATH=None, INFERENCE_BATCH_SIZE=2, RESULTS_DIR=tmp_path)
+              TARGET_SCALER_PATH=None, INFERENCE_BATCH_SIZE=2, RESULTS_DIR=tmp_path,
+              PLOT_TIME_COLUMN="collected" if use_time else None, PLOT_TIME_WINDOW=None, plot_times=None)
+    if use_time:
+        ns["test_data"]["collected"] = ["2024-03-01", "2024-01-01", "2024-01-03", "2024-01-01"]
+        ns["plot_times"] = ns["parse_plot_times"](ns["test_data"], "collected")
     for source in code_cells():
         if source.startswith("if test_data is not None and "):
             exec(compile(source, str(PATH), "exec"), ns)
@@ -212,4 +218,12 @@ def test_optional_evaluation_branches_with_mock_interfaces(notebook_namespace, t
     assert ns["regression_result"]["mean"].shape == (4, 1)
     for name in ["classification_test.png", "regression_test.png", "classification_predictions.csv", "regression_predictions.csv"]:
         assert (tmp_path / name).stat().st_size > 0
+    saved = pd.read_csv(tmp_path / "regression_predictions.csv")
+    if use_time:
+        np.testing.assert_array_equal(pd.to_datetime(saved["plot_time"]), ns["plot_times"])
+        assert ns["axes"][0, 1].get_xlabel() == "collected (source timestamps)"
+    else:
+        assert ns["axes"][0, 1].get_xlabel() == "Predicted mean (target units)"
+    # No lines or filled polygons may bridge independent observations.
+    assert not ns["axes"][0, 1].lines
     plt.close("all")

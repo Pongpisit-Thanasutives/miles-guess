@@ -12,6 +12,10 @@
   "split_strategy": "group",
   "data_path": "/workspace/scratch/d7d34632ac75/miles-guess/data/sample_cabauw_surface_layer.csv",
   "authors_sample": true,
+  "plot": {
+    "time_column": "Time",
+    "time_window": "7D"
+  },
   "authors_split_seeds": {
     "outer": 1000,
     "inner": 1000,

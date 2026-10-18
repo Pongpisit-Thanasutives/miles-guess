@@ -1,5 +1,27 @@
 # Restoring the authors' examples
 
+Revision `2025.1.0+py311.6` adds a Figure 11-style diurnal composite to both
+regression examples and the custom-data guide. Blue triangles show observed
+means, orange squares predicted means, green circles aleatoric SD, and red
+pentagons epistemic SD. All held-out dates contribute to 10-minute clock-time
+bins; empty bins break the curves. The uncertainty curves use
+`sqrt(mean(component_variance))`, matching the authors' source implementation.
+Physical units, the source clock, and per-bin counts are retained. The bundled
+examples have one target, friction velocity; the helper supports additional
+targets when genuine predictions are available. Model settings and budgets
+remain those of the original examples, so these are new figures of those runs,
+not reproduced scores from the paper's tuned experiments.
+
+The subsequent `2025.1.0+py311.5` update replaces ordinal prediction axes with
+actual timestamps. Cabauw interval panels display a stated calendar window,
+using separate interval bars and observation/mean markers so missing dates do
+not imply continuous measurements. Full-test metrics still use every test row.
+The custom-data and DNA guides accept an explicit plotting-time column; without
+timestamps their interval panels use actual predicted means on the x-axis.
+Epochs, calibration probabilities, physical variables, and class labels retain
+their natural axes. Research plotting helpers also stop treating batches as
+time or spacing timestamp strings as equally spaced categories.
+
 Revision `2025.1.0+py311.4` corrects the scope of the preceding notebook update.
 The authors' original datasets, architectures and notebook training settings
 are restored. New code focuses on held-out evaluation, clear visualisations,
