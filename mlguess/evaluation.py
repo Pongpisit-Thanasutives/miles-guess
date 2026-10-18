@@ -25,6 +25,17 @@ def evaluate_nig(y_true, parameters, y_scaler=None, interval_levels=(.5, .8, .9,
     marginal negative log density in the supplied target units. Multiple
     targets are evaluated separately; no cross-target covariance is modeled.
     R² is NaN when a test target is constant.
+
+    ``component_cdf`` contains ``aleatoric``, ``epistemic``, and ``total``
+    reference CDF values at each observation. The first two compare the total
+    observed residual with the NIG marginal noise and latent-mean deviation,
+    respectively. They are NOT PITs of separately observed components and
+    need not be uniform for a calibrated predictive model. Only ``total``
+    (identical to ``pit``) evaluates the observable predictive distribution.
+    All three marginals have 2*alpha degrees of freedom and squared scales
+    equal to their physical-unit variances times (alpha-1)/alpha. The noise
+    and mean deviation share the latent variance: they are conditionally
+    independent, but generally marginally dependent. CDF values do not add.
     """
     if not isinstance(parameters, (tuple, list)) or len(parameters) != 4:
         raise ValueError("parameters must be (mu, nu, alpha, beta)")
@@ -52,6 +63,14 @@ def evaluate_nig(y_true, parameters, y_scaler=None, interval_levels=(.5, .8, .9,
             or np.any(scale <= 0)):
         raise ValueError("predictive Student-t parameters must be finite and nondegenerate")
     distribution = t(df=df, loc=mu, scale=scale)
+    pit = distribution.cdf(y)
+    component_cdf = {"total": pit}
+    for name, variance in (("aleatoric", aleatoric), ("epistemic", epistemic)):
+        # Separate square roots avoid underflow for small valid component variances.
+        component_scale = np.sqrt(variance) * np.sqrt((alpha - 1) / alpha)
+        if not np.all(np.isfinite(component_scale)) or np.any(component_scale <= 0):
+            raise ValueError("NIG component Student-t scales must be finite and positive")
+        component_cdf[name] = t.cdf(y, df=df, loc=mu, scale=component_scale)
     log_density = distribution.logpdf(y)
     if not np.all(np.isfinite(log_density)):
         raise ValueError("predictive log densities are not finite")
@@ -78,7 +97,7 @@ def evaluate_nig(y_true, parameters, y_scaler=None, interval_levels=(.5, .8, .9,
             records.append(dict(target=target, nominal=float(level),
                                 observed=float(coverage[target]), mean_width=float(width[target])))
     return dict(mean=mu, aleatoric=aleatoric, epistemic=epistemic, total=total,
-                df=df, predictive_scale=scale, pit=distribution.cdf(y),
+                df=df, predictive_scale=scale, pit=pit, component_cdf=component_cdf,
                 intervals=intervals, metrics=metrics, coverage=pd.DataFrame.from_records(records))
 
 

@@ -29,7 +29,12 @@ def notebook(name):
     path = ROOT / "notebooks" / name
     if not path.exists():
         pytest.skip("Notebook sources are not included in this installation")
-    return json.loads(path.read_text(encoding="utf-8"))
+    result = json.loads(path.read_text(encoding="utf-8"))
+    # Keep the historical cell references stable when a notation guide is added.
+    result["cells"] = [cell for cell in result["cells"]
+                       if not (cell["cell_type"] == "markdown" and
+                               "paper-notation-guide" in cell.get("metadata", {}).get("tags", []))]
+    return result
 
 
 def cell_source(name, index):

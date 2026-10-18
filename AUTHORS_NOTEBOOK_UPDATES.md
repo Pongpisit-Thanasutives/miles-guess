@@ -1,5 +1,25 @@
 # Restoring the authors' examples
 
+Revision `2025.1.0+py311.8` aligns notebook mathematical notation with the
+paper. Regression explanations use gamma_n for the predicted location, mu_n
+for the uncertain latent mean, E[sigma_n²] for aleatoric variance [Eq. (25)],
+and Var(mu_n) for epistemic variance [Eq. (26)]. In-notebook keys map existing
+code/API names to those symbols. Figure 10 Student-t scales and Figure 11
+clock-bin averages use the same notation and explicit equation references.
+Classification explanations distinguish latent class probabilities, predicted
+Dirichlet means, component variances, and DST mass. Gaussian ensemble means
+retain their Gaussian notation. Historical snapshots remain unchanged.
+
+Revision `2025.1.0+py311.7` adds a three-panel Figure 10-style diagnostic to
+`regression_example_torch.ipynb`: aleatoric reference, epistemic reference,
+and total predictive PIT. All use the NIG Student-t marginals. The first two
+evaluate observed residuals against component reference distributions; only
+total has uniformity as its predictive-calibration target. Nine equal-width
+bins show relative frequency. PNG, SVG, per-observation CDF values with source
+timestamps, and bin counts are exported to `outputs/authors_regression_torch`.
+All pre-existing notebook cell sources and the authors' dataset/model/training
+choices are retained. The figure presents the existing friction-velocity model.
+
 Revision `2025.1.0+py311.6` adds a Figure 11-style diurnal composite to both
 regression examples and the custom-data guide. Blue triangles show observed
 means, orange squares predicted means, green circles aleatoric SD, and red

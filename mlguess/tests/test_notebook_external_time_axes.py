@@ -15,7 +15,11 @@ ROOT = Path(__file__).resolve().parents[2]
 
 def cell_source(name, index):
     notebook = json.loads((ROOT / "notebooks" / name).read_text())
-    return "".join(notebook["cells"][index]["source"])
+    # Keep the historical cell references stable when a notation guide is added.
+    cells = [cell for cell in notebook["cells"]
+             if not (cell["cell_type"] == "markdown" and
+                     "paper-notation-guide" in cell.get("metadata", {}).get("tags", []))]
+    return "".join(cells[index]["source"])
 
 
 def shap_plotter():

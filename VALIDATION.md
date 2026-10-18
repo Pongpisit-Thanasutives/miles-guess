@@ -1,12 +1,63 @@
 # Validation report
 
-Date: **2026-10-18**. Local revision: **2025.1.0+py311.6**.
+Date: **2026-10-18**. Local revision: **2025.1.0+py311.8**.
 Upstream base: `69775bef5d65b50e53692d860092e0295b4e7d23`.
 
 This revision restores the authors' examples and extends their held-out
 assessment. It does not replace their datasets or architectures with generated
 examples. `AUTHORS_NOTEBOOK_UPDATES.md` documents preservation and the specific
 compatibility/calculation errors corrected.
+
+## Paper-notation update (py311.8)
+
+Eleven active notebooks now use the paper's mathematical symbols, equation
+references, and code-to-symbol keys. All notebook documents pass format
+validation, and 250 mathematical expressions in changed Markdown pass delimiter
+and brace checks. All 83 code cells in the six main tutorials, including their
+saved outputs and execution metadata, are identical to py311.7. Runtime library
+Python files, datasets, configurations, and legacy snapshots are byte-identical.
+The two notebook copies used by the documentation match their updated sources.
+
+The only research code edits replace SHAP output-label strings in two cells.
+Those labels now describe the predicted location and component variances.
+All four expressions were parsed and rendered with Matplotlib. Ten stored SHAP
+figures carrying obsolete labels were cleared, along with their execution
+counts; no new attribution results are claimed. Other saved research outputs
+are preserved. The external Captum workflow and its checkpoints were not run.
+
+**59 existing notebook tests passed.** Two test lookup helpers now ignore only
+the tagged Markdown notation guides when resolving historical cell positions;
+the scientific assertions and fixtures are unchanged. No training was rerun
+for these exposition edits. Detailed source/output comparisons and validation
+records are in `validation/notation-*`; the numerical runtime and platform
+validation from prior revisions retains its documented scope.
+
+## Figure 10-style Student-t update (py311.7)
+
+The PyTorch regression notebook adds three Student-t CDF panels: aleatoric
+reference, epistemic reference, and total predictive PIT. Independent numerical
+integration over the Normal/inverse-gamma hierarchy and closed-form Student-t
+values validate the component calculations. Tests also cover physical-unit
+affine transformations, total-PIT preservation, a vanishing epistemic component,
+and representable scales for very small positive variances. A deterministic
+predictive-quantile fixture shows that uniform total PIT does not imply uniform
+component-reference CDF histograms.
+
+**63 focused tests passed**, including nine new component-CDF cases. The full
+PyTorch regression notebook executed **25 code cells and 5 figures**, retaining
+the original Cabauw data and one-pass training settings. All pre-existing
+notebook cell sources, complete-test metrics, and saved per-observation means,
+variances, and intervals match the previous delivery. The new figure uses all
+10,592 held-out observations, nine equal-width relative-frequency bins, and a
+shared vertical axis. The rendered output was inspected for labels, scale,
+legend placement, and clipping. PNG/SVG figures, timestamped CDF values, bin
+counts, and execution/test records are under `validation/figure10-*`.
+
+Only the total panel is a predictive PIT for observed targets. The component
+panels are explicitly labelled reference diagnostics. The published Figure 10
+CDF has not been conclusively traced; this update specifies Student-t marginals
+from the NIG hierarchy, consistent with the paper's predictive Equation (15).
+The previously documented full-suite and native-platform scope is unchanged.
 
 ## Figure 11-style update (py311.6)
 

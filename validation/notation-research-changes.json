@@ -1,0 +1,56 @@
+{
+  "paper_figures_regression": {
+    "added_markdown_cells": 1,
+    "label_changes": [],
+    "cleared_original_cell_1based": [],
+    "code_and_other_outputs_preserved": true
+  },
+  "paper_figures_categorical": {
+    "added_markdown_cells": 1,
+    "label_changes": [],
+    "cleared_original_cell_1based": [],
+    "code_and_other_outputs_preserved": true
+  },
+  "evidential_figure_1": {
+    "added_markdown_cells": 1,
+    "label_changes": [],
+    "cleared_original_cell_1based": [],
+    "code_and_other_outputs_preserved": true
+  },
+  "shap": {
+    "added_markdown_cells": 1,
+    "label_changes": [
+      {
+        "original_cell_1based": 24,
+        "occurrences": 1,
+        "old": "[r'$\\mu$', r'$\\sigma_{ale}$', r'$\\sigma_{epi}$', r'$\\sigma_{tot}$']",
+        "new": "[r'$\\gamma_n$', r'$\\mathbb{E}[\\sigma_n^2]$', r'$\\operatorname{Var}(\\mu_n)$', r'$\\mathbb{E}[\\sigma_n^2]+\\operatorname{Var}(\\mu_n)$']"
+      },
+      {
+        "original_cell_1based": 46,
+        "occurrences": 2,
+        "old": "[r'$\\mu$', r'$\\sigma_{ale}$', r'$\\sigma_{epi}$', r'$\\sigma_{tot}$']",
+        "new": "[r'$\\gamma_n$', r'$\\mathbb{E}[\\sigma_n^2]$', r'$\\operatorname{Var}(\\mu_n)$', r'$\\mathbb{E}[\\sigma_n^2]+\\operatorname{Var}(\\mu_n)$']"
+      }
+    ],
+    "cleared_original_cell_1based": [
+      27,
+      29,
+      31,
+      33,
+      35,
+      37,
+      39,
+      41,
+      43,
+      45
+    ],
+    "code_and_other_outputs_preserved": true
+  },
+  "sounding-figure": {
+    "added_markdown_cells": 1,
+    "label_changes": [],
+    "cleared_original_cell_1based": [],
+    "code_and_other_outputs_preserved": true
+  }
+}

@@ -1,7 +1,37 @@
 # Scientific preservation and verified corrections
 
 Base: ai2es/miles-guess commit `69775bef5d65b50e53692d860092e0295b4e7d23`.
-Local revision: `2025.1.0+py311.6`; this is not an upstream release.
+Local revision: `2025.1.0+py311.8`; this is not an upstream release.
+
+The py311.8 update aligns notebook explanations and display notation with the
+paper, especially its Eqs. (19) and (24)–(26). Predicted NIG location gamma_n
+is distinguished from the latent mean mu_n; code aliases remain documented
+without changing public APIs. Classification notation follows Eqs. (3)–(7)
+and (20)–(23). This is an exposition update: mathematical calculations and
+training are unchanged. The SHAP research notebook's output labels now denote
+the predicted location and variances actually returned by its model, rather
+than incorrectly labelling those variance outputs as standard deviations.
+No new attribution results or external paper experiments are claimed.
+
+The py311.7 update adds Figure 10-style Student-t reference diagnostics to the
+PyTorch regression notebook. `evaluate_nig` now returns `component_cdf`: the
+aleatoric noise marginal, epistemic latent-mean marginal, and full predictive
+CDF, each evaluated at the observed target with the appropriate location.
+For each physical-unit variance V, the Student-t scale squared is
+`V*(alpha-1)/alpha`, with `2*alpha` degrees of freedom. The total CDF reuses the
+existing predictive PIT exactly. Independent Normal/inverse-gamma integration
+and closed-form tests validate these calculations.
+
+Only total is a genuine predictive PIT for observed Y. The component reference
+values compare the observed residual, which contains both sources, against
+one component's marginal distribution. They need not be uniform even for a
+calibrated model. The components share a latent variance and are generally
+marginally dependent; their variances, not their CDF values, add. The notebook
+explains these distinctions and saves all 10,592 test-row values and nine-bin
+relative-frequency tables. Existing notebook cells, data, training settings,
+and predictive calculations are preserved. Figure 10's exact generation path
+is unverified: the released code includes Gaussian PIT diagnostics, but that
+does not establish which CDF produced the published evidential figure.
 
 The py311.6 update adds diurnal-composite visualisation following Figure 11 of
 Schreck et al. (2024), DOI `10.1175/AIES-D-23-0093.1`. Within each 10-minute

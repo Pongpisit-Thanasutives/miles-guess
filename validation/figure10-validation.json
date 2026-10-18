@@ -1,0 +1,47 @@
+{
+  "revision": "2025.1.0+py311.7",
+  "notebook": "/workspace/scratch/d7d34632ac75/miles-guess/notebooks/regression_example_torch.ipynb",
+  "execution": {
+    "method": "IPython in-process; all code cells in order",
+    "python": "3.11.17",
+    "runtime_seconds": 58.527
+  },
+  "code_cells": 25,
+  "captured_figures": 5,
+  "mathematical_distribution": "NIG marginal Student-t; df=2*alpha; scale squared=component variance*(alpha-1)/alpha",
+  "interpretation": "Aleatoric and epistemic reference CDF diagnostics; only total is observed-target predictive PIT",
+  "independent_validation": "Normal/inverse-gamma mixture quadrature, closed-form t4, physical-unit invariance, total identity, large nu, small representable scales, nonuniform component references under uniform total PIT",
+  "focused_tests": 63,
+  "new_component_tests": 9,
+  "original_notebook_cells_unchanged": true,
+  "original_data_and_configurations_sha256": {
+    "data/ptype_sample.parquet": "d10c68959901d2ee265c11678a11a48d1bb306304c50e126d7a2ef5d81eaa00b",
+    "data/sample_cabauw_surface_layer.csv": "fe9ead12574f5041da1fc683ed85bf994aff0cab17227edec5398592b4ce2bde",
+    "config/deterministic_classifier.yml": "a496d2cadcc2ddae11ce5e352cc3cc06b7ccffe80f77980232f408e30fc8a94d",
+    "config/deterministic_regression.yml": "7f4d9c2afd101a31558f8214250e3c156b8efd35ee54c0c712564f9738c611c8",
+    "config/evidential_classifier.yml": "46a0a8d3b89ae75673e5bbf7d8393fc857a34a106c169617826a7603dd1998c3",
+    "config/evidential_classifier_torch.yml": "3fd6d96885e8266e5d3087f8721a84a1b72034ebd364c142ad89ebac87b7dfb3",
+    "config/evidential_regression.yml": "58894a8967097ea2513c093dd8ece44092704cb27994765123e49238e80dbc77",
+    "config/evidential_regression_torch.yml": "3c23272987c35c87a671399d2a5243b9d0cc9c41fef1f51b3ec91f66d50fae04",
+    "config/gauss_regression.yml": "edba328ff1ea0a10d6e3fb96c9ce925693c4923fead856a4212b971a50f9c462",
+    "config/pbs_example.yaml": "fac606bf0025384b96df8e6ba3d45965eb99e41647b8580e5653e685765736f4",
+    "config/ptype/deterministic.yml": "4d8ae3a49a9d985d26e4470f75a534d9e3655c31fb35b8b7d87a776e8e440954",
+    "config/ptype/evidential.yml": "a2465116662914ab83a51a3a3582306a383e39da3b1c17c4fcc1721e7344371d",
+    "config/surface_layer/evidential.yml": "56135e33713e9696c0cb4bb16e558cba21c3719fc04a348ab933f58fff174f3c",
+    "config/surface_layer/gaussian.yml": "922bdc254e84604db470a37e739f6e15768d13993cd9a01a77ac56d23fbbbd34",
+    "config/surface_layer/mlp.yml": "11d7705650b64863478c74a9ad36639fd1b354c6b30f98df0e7a68c43e8a4e16"
+  },
+  "prior_metrics_and_all_exported_predictions_exactly_equal": true,
+  "all_test_observations": 10592,
+  "histogram_bins": 9,
+  "histogram_rows": 27,
+  "row_alignment_and_histogram_counts_verified": true,
+  "published_figure10_cdf_provenance": "unconfirmed",
+  "visual_review": "Shared frequency axis, blue bars, legible labels, uniform reference, explicit component interpretation, legend clear of bars",
+  "exports": [
+    "validation/figure10-results/figure10_student_t_cdf_values.csv",
+    "validation/figure10-results/figure10_student_t_histograms.csv",
+    "validation/figure10-results/figure10_student_t_pit.png",
+    "validation/figure10-results/figure10_student_t_pit.svg"
+  ]
+}

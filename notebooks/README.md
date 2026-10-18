@@ -5,6 +5,15 @@ add explicit test-set metrics and visualisations, with compatibility and genuine
 calculation errors corrected. The Keras and PyTorch examples are **different
 original workflows**, not aliases. Their original snapshots remain in `legacy/`.
 
+The explanations use the paper's mathematical notation and equation numbers.
+For NIG regression, the predicted location is $\gamma_n$ [Eq. (24)], while $\mu_n$
+is the uncertain latent mean. Aleatoric and epistemic variances are
+$\mathbb{E}[\sigma_n^2]$ [Eq. (25)] and $\operatorname{Var}(\mu_n)$ [Eq. (26)]. In-notebook notation tables
+map existing code names such as `mu`, `mean`, `aleatoric`, and `epistemic` to
+these symbols. The Gaussian-model and Dirichlet-classification sections use
+their own corresponding paper notation. Calculations and training results
+are preserved; the reference snapshots in `legacy/` are unchanged.
+
 | Notebook | Original data and configuration | Added evaluation |
 | --- | --- | --- |
 | `regression_example_torch.ipynb` | Bundled Cabauw CSV; `evidential_regression_torch.yml`; five 1057-unit layers; original year-based split, batch 128, Adam 0.001, one pass for deterministic and evidential models. | Physical-unit errors, predictive Student-t NLL/intervals/coverage/PIT, and aleatoric/epistemic plots. |
@@ -60,6 +69,14 @@ original notebook. The large original Keras architecture requires several GB
 of memory; it has not been replaced by a smaller network.
 
 ## Interpretation and scope
+
+The PyTorch regression notebook additionally provides Figure 10-style
+aleatoric, epistemic, and total Student-t CDF histograms. Only the total panel
+is a predictive PIT for observed targets. The first two compare the observed
+residual with component marginal distributions; they need not be uniform.
+All panels use the complete test set and nine equal-width relative-frequency
+bins. The notebook derives the scales, preserves the original training run,
+and exports PNG/SVG figures plus per-row CDF values and histogram tables.
 
 The regression notebooks also include a diurnal composite in the style of
 Figure 11 of [Schreck et al. (2024)](https://doi.org/10.1175/AIES-D-23-0093.1).
