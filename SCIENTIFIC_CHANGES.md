@@ -1,7 +1,7 @@
 # Scientific preservation and verified corrections
 
 Base: ai2es/miles-guess commit `69775bef5d65b50e53692d860092e0295b4e7d23`.
-Local revision: `2025.1.0+py311.3`; this is not an upstream release.
+Local revision: `2025.1.0+py311.4`; this is not an upstream release.
 
 The model families, Normal-Inverse-Gamma (NIG) and Dirichlet parameterizations,
 evidential regularizers, and Lipschitz-modified MSE equations are retained.
@@ -96,10 +96,12 @@ ensemble members, and use a consistent full-Dirichlet marginal and scaled-densit
 Jacobian in the evidential figure. Corrected cells have synthetic execution
 and rendering tests. Downstream outputs of affected paper cells were cleared;
 external-data paper experiments and their scientific conclusions were not
-reproduced. Four canonical tutorials now use self-contained synthetic training,
-validation, and untouched test splits; previous introductory and DNA versions
-are retained in `notebooks/legacy`. Tutorial execution is recorded separately in
-`validation/notebooks-core.json`. A correct variance decomposition alone does
+reproduced. The authors' original regression, precipitation, and BERT example workflows
+are restored in py311.4, with their datasets and model configurations retained.
+Held-out evaluations and plots extend those workflows. Original snapshots are
+in `notebooks/legacy/`; exact preservation and required API/calculation changes
+are listed in `AUTHORS_NOTEBOOK_UPDATES.md`. Current execution records use the
+`validation/authors-*` prefix. A correct variance decomposition alone does
 not establish empirical calibration or identify a uniquely correct aleatoric/
 epistemic split.
 

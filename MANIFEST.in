@@ -1,4 +1,4 @@
-include LICENSE README.md SCIENTIFIC_CHANGES.md VALIDATION.md UNCERTAINTY.md
+include LICENSE README.md SCIENTIFIC_CHANGES.md VALIDATION.md UNCERTAINTY.md AUTHORS_NOTEBOOK_UPDATES.md
 include environment*.yml
 recursive-include mlguess *.py VERSION
 recursive-include applications *.py

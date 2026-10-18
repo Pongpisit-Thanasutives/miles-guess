@@ -1,0 +1,92 @@
+{
+  "execution_method": "IPython in-process, all code cells sequentially",
+  "working_directory": "notebooks",
+  "executions": [
+    {
+      "notebook": "/workspace/scratch/d7d34632ac75/miles-guess/notebooks/regression_example.ipynb",
+      "code_cells": 6,
+      "figures": 4,
+      "runtime_seconds": 9.23,
+      "saved": true
+    },
+    {
+      "notebook": "/workspace/scratch/d7d34632ac75/miles-guess/notebooks/classifier_example.ipynb",
+      "code_cells": 6,
+      "figures": 5,
+      "runtime_seconds": 5.71,
+      "saved": true
+    }
+  ],
+  "mirrors": [
+    {
+      "source": "notebooks/regression_example.ipynb",
+      "copy": "notebooks/regression_example_torch.ipynb",
+      "identical": true
+    },
+    {
+      "source": "notebooks/regression_example.ipynb",
+      "copy": "docs/source/notebooks/regression_example.ipynb",
+      "identical": true
+    },
+    {
+      "source": "notebooks/classifier_example.ipynb",
+      "copy": "notebooks/classifier_example_torch.ipynb",
+      "identical": true
+    },
+    {
+      "source": "notebooks/classifier_example.ipynb",
+      "copy": "docs/source/notebooks/classifier_example.ipynb",
+      "identical": true
+    }
+  ],
+  "validation": [
+    {
+      "notebook": "notebooks/regression_example.ipynb",
+      "nbformat_valid": true,
+      "all_code_cells_executed": true,
+      "error_outputs": 0,
+      "code_cells": 6,
+      "figures": 4
+    },
+    {
+      "notebook": "notebooks/classifier_example.ipynb",
+      "nbformat_valid": true,
+      "all_code_cells_executed": true,
+      "error_outputs": 0,
+      "code_cells": 6,
+      "figures": 5
+    },
+    {
+      "notebook": "notebooks/regression_example_torch.ipynb",
+      "nbformat_valid": true,
+      "all_code_cells_executed": true,
+      "error_outputs": 0,
+      "code_cells": 6,
+      "figures": 4
+    },
+    {
+      "notebook": "notebooks/classifier_example_torch.ipynb",
+      "nbformat_valid": true,
+      "all_code_cells_executed": true,
+      "error_outputs": 0,
+      "code_cells": 6,
+      "figures": 5
+    },
+    {
+      "notebook": "notebooks/evidential_learning_your_data.ipynb",
+      "nbformat_valid": true,
+      "all_code_cells_executed": true,
+      "error_outputs": 0,
+      "code_cells": 10,
+      "figures": 2
+    },
+    {
+      "notebook": "notebooks/dna_example_torch.ipynb",
+      "nbformat_valid": true,
+      "all_code_cells_executed": true,
+      "error_outputs": 0,
+      "code_cells": 10,
+      "figures": 2
+    }
+  ]
+}

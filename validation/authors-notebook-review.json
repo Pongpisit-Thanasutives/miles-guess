@@ -1,0 +1,312 @@
+{
+  "date": "2026-10-18",
+  "upstream_commit": "69775bef5d65b50e53692d860092e0295b4e7d23",
+  "scope": "Independent source and selected-figure review of six notebooks against upstream snapshots/configurations; supplements execution logs and numerical tests, not a claim that all possible inputs are error-free.",
+  "independent_provenance_checks": {
+    "bundled_datasets_byte_identical_to_upstream": true,
+    "all_seven_used_yaml_model_dictionaries_equal_upstream": true,
+    "cabauw_sha256": "fe9ead12574f5041da1fc683ed85bf994aff0cab17227edec5398592b4ce2bde",
+    "ptype_sha256": "d10c68959901d2ee265c11678a11a48d1bb306304c50e126d7a2ef5d81eaa00b"
+  },
+  "review_findings_resolved": [
+    "Restored custom-guide inner split seed to 1000; data_seed=0 is a split index, not its RNG seed.",
+    "Kept current Keras evidential class to avoid unintended L2 activation and KL-annealing offset when restoring legacy deterministic balancing.",
+    "Removed stale synthetic-example wording from custom guide.",
+    "Made single-epoch guide history points visible; exposed original heavy-tailed NIG uncertainty with labeled symmetric-log scale and count colorbars.",
+    "Staggered overlapping reliability-bin annotations."
+  ],
+  "notebooks": [
+    {
+      "path": "notebooks/regression_example_torch.ipynb",
+      "source_sha256": "e25387bb0915c02e0eaf648e439f523b53a5559f64755a74a60b9fb5fae777b0",
+      "code_cells": 23,
+      "embedded_execution_counts": 23,
+      "embedded_errors": 0,
+      "generated_dataset_constructors_present": false,
+      "original_reference": "notebooks/legacy/regression_example_torch.ipynb",
+      "data": "Unmodified upstream data/sample_cabauw_surface_layer.csv",
+      "split": {
+        "group": "year",
+        "outer_seed": 1000,
+        "outer_train_group_fraction": 0.9,
+        "inner_seed": 1000,
+        "inner_train_group_fraction": 0.885,
+        "split_index": 0,
+        "train_rows": 55007,
+        "validation_rows": 6598,
+        "test_rows": 10592
+      },
+      "preserved": {
+        "config": "config/evidential_regression_torch.yml",
+        "hidden_layers": [
+          1057,
+          1057,
+          1057,
+          1057,
+          1057
+        ],
+        "dropout": [
+          0.263,
+          0.263,
+          0.263,
+          0.263,
+          0.263
+        ],
+        "batch_size": 128,
+        "optimizer": "Adam",
+        "learning_rate": 0.001,
+        "training_passes_per_model": 1,
+        "objectives": [
+          "L1Loss",
+          "LipschitzMSELoss"
+        ],
+        "evidence_regularizer_coefficient": 5.806527626063491,
+        "feature_scaler": "RobustScaler",
+        "target_scaler": "MinMaxScaler(0,1)"
+      },
+      "evaluation_review": "All test rows evaluated after both models finish. Batched eval-mode inference, physical-unit errors, exact NIG Student-t NLL/intervals/PIT, and variance decomposition. No test-based fitting or checkpoint selection.",
+      "verdict": "passes"
+    },
+    {
+      "path": "notebooks/classifier_example_torch.ipynb",
+      "source_sha256": "42d8dbaccd8ab38d5969b6afe21754535d0a117b39ffe3ed1ef64ebc3f1658e5",
+      "code_cells": 20,
+      "embedded_execution_counts": 20,
+      "embedded_errors": 0,
+      "generated_dataset_constructors_present": false,
+      "original_reference": "notebooks/legacy/classifier_example_torch.ipynb",
+      "data": "Original full mPING path retained by default; recorded run explicitly selects the unmodified upstream ptype_sample.parquet with MILES_PTYPE_DATA.",
+      "split": {
+        "rule": "Original quality filters, case-study days, date cutoff, then train/validation day groups",
+        "seed": 1000,
+        "sample_train_rows": 7225,
+        "sample_validation_rows": 908,
+        "sample_test_rows": 4031
+      },
+      "preserved": {
+        "config": "config/evidential_classifier_torch.yml",
+        "features": 84,
+        "classes": 4,
+        "hidden_layers": [
+          212,
+          212,
+          212,
+          212
+        ],
+        "dropout": [
+          0.1167,
+          0.1167,
+          0.1167,
+          0.1167
+        ],
+        "batch_size": 1024,
+        "optimizer": "Adam",
+        "learning_rate": 0.001,
+        "epochs": 100,
+        "maximum_batches_per_epoch": 10,
+        "evidential_loss": "digamma",
+        "annealing_step": 10,
+        "feature_scaler": "Per-feature RobustScaler, groups=[] as in original notebook"
+      },
+      "required_corrections": [
+        "CrossEntropyLoss consumes logits; softmax applied once for evaluation.",
+        "Evidence outputs converted to Dirichlet probabilities before probability metrics.",
+        "Device passed by keyword to avoid binding it to class weights.",
+        "Epoch summaries use actual observation counts, including final partial batches."
+      ],
+      "evaluation_review": "Complete held-out test split, separate standard and evidential metrics, fixed four-class axis, confusion, reliability/bin counts, variance traces and distinct vacuity statistic.",
+      "verdict": "passes"
+    },
+    {
+      "path": "notebooks/regression_example.ipynb",
+      "source_sha256": "bcb55266187479167970f58f7f13e482794b2fa4cef6b6a7fcff4e18a185b2cf",
+      "code_cells": 10,
+      "embedded_execution_counts": 10,
+      "embedded_errors": 0,
+      "generated_dataset_constructors_present": false,
+      "original_reference": "notebooks/legacy/regression_example.ipynb",
+      "data": "Unmodified upstream data/sample_cabauw_surface_layer.csv",
+      "split": {
+        "group": "day",
+        "outer_seed": 1000,
+        "inner_seed": 1000,
+        "outer_train_group_fraction": 0.9,
+        "inner_train_group_fraction": 0.885,
+        "train_rows": 57431,
+        "validation_rows": 7578,
+        "test_rows": 7188
+      },
+      "preserved": {
+        "configs": [
+          "config/surface_layer/mlp.yml",
+          "config/surface_layer/gaussian.yml",
+          "config/surface_layer/evidential.yml"
+        ],
+        "yaml_model_dictionaries": "unchanged",
+        "deterministic_epochs": 1,
+        "gaussian_epochs": 1,
+        "evidential_epochs": 5,
+        "gaussian_ensemble_members": 2,
+        "ensemble_member_epochs": 1,
+        "deterministic_dropout_passes": 100,
+        "gaussian_dropout_passes": 10,
+        "feature_scaler": "RobustScaler",
+        "target_scaler": "MinMaxScaler(0,1)"
+      },
+      "required_corrections": [
+        "Deterministic section uses the deterministic legacy wrapper matching its MLP/MSE configuration.",
+        "Stale imports and Keras checkpoint spelling adapted.",
+        "Member-specific input and target scalers retained for ensemble reload; moments converted before combination.",
+        "Gaussian sigma squared before variance combination; exact mixture density/quantiles used for ensemble/dropout diagnostics."
+      ],
+      "evaluation_review": "Test remains outside fitting. Gaussian, Student-t, and Gaussian-mixture distributions handled separately. Deterministic dropout spread not called a complete predictive interval. Large evidential variance tail retained and shown on a labeled symmetric-log axis.",
+      "verdict": "passes"
+    },
+    {
+      "path": "notebooks/classifier_example.ipynb",
+      "source_sha256": "1b2ffeedb711ce5a54b3183f6281e552336248c0fc1bd3591d563ca50d724294",
+      "code_cells": 5,
+      "embedded_execution_counts": 5,
+      "embedded_errors": 0,
+      "generated_dataset_constructors_present": false,
+      "original_reference": "notebooks/legacy/classifier_example.ipynb",
+      "data": "Unmodified upstream data/ptype_sample.parquet, as selected by the original deterministic YAML and reused by the original evidential section.",
+      "split": {
+        "rule": "Original quality filters, case-study days, date cutoff, then train/validation day groups",
+        "seed": 1000,
+        "train_rows": 7225,
+        "validation_rows": 908,
+        "test_rows": 4031
+      },
+      "preserved": {
+        "deterministic_config": "config/ptype/deterministic.yml",
+        "evidential_config": "config/ptype/evidential.yml",
+        "deterministic_hidden_layers": [
+          6024,
+          6024,
+          6024,
+          6024
+        ],
+        "deterministic_epochs": 1,
+        "deterministic_batch_size": 100,
+        "balanced_classes": 1,
+        "class_weights": [
+          21.465788717561477,
+          83.31367732936326,
+          136.50944842077058,
+          152.62042204485107
+        ],
+        "deterministic_dropout_passes": 10,
+        "evidential_hidden_layers": [
+          212,
+          212,
+          212,
+          212
+        ],
+        "evidential_epochs": 5,
+        "evidential_batch_size": 1130,
+        "feature_scaler": "Shared train-fitted per-feature quantile preprocessing from original deterministic section"
+      },
+      "required_corrections": [
+        "Legacy deterministic wrapper retains balanced minibatch generator and class weights that current API does not accept.",
+        "Current evidential CategoricalDNN retained, preserving original default kernel_reg=None and one-based KL annealing start.",
+        "Evaluation moved from validation rows to held-out test rows; constructor/prediction calls use supported APIs."
+      ],
+      "evaluation_review": "Full test metrics, confusion, reliability counts and variance/vacuity diagnostics; no test-based training decisions. Original balanced deterministic sampling and weights retained, not applied to the evidential model.",
+      "verdict": "passes"
+    },
+    {
+      "path": "notebooks/dna_example_torch.ipynb",
+      "source_sha256": "06267a752507e707432594fb4e0bd5ab605861f9191938cadcf7d7096e7fa35a",
+      "code_cells": 11,
+      "embedded_execution_counts": 0,
+      "embedded_errors": 0,
+      "generated_dataset_constructors_present": false,
+      "original_reference": "notebooks/legacy/dna_example_torch_original.ipynb",
+      "data": "Original literal sequence AGCTAGCTAGCT; upstream provides no training/test dataset.",
+      "preserved": {
+        "backbone": "bert-base-uncased",
+        "pooling": "CLS hidden state",
+        "classification_classes": 10,
+        "regression_tasks": 1,
+        "regression_example_target": 1.45456457,
+        "training_variance_metadata": [
+          0.0033433
+        ],
+        "classification_loss": "digamma",
+        "classification_annealing_coefficient": 10,
+        "regression_loss": "Original marginal likelihood + evidence regularizer factor 0.1 + modified MSE; tol 1e-8"
+      },
+      "required_corrections": [
+        "Stable softplus and finite positive NIG parameters.",
+        "Deterministic inference with state restoration.",
+        "Affine target scaling rather than applying an incomplete variance-only multiplier.",
+        "Loss device passed by keyword; shape/parameter handling corrected."
+      ],
+      "evaluation_review": "Optional real held-out CSV plus trained-checkpoint branches; no generated benchmark, invented scores, or results from untrained heads. Classification/Student-t regression plotting interfaces tested with explicitly labeled mocked fixtures only.",
+      "execution_limit": "Full pretrained BERT and real held-out data were unavailable. Default cells are guarded and report skipped scientific sections; source notebook deliberately has no fabricated outputs.",
+      "verdict": "passes_with_explicit_resource_limit"
+    },
+    {
+      "path": "notebooks/evidential_learning_your_data.ipynb",
+      "source_sha256": "d4e21c474dd386a5f4dea8165325242ed4d1a4cbab1ad861a1406b732c269bec",
+      "code_cells": 10,
+      "embedded_execution_counts": 10,
+      "embedded_errors": 0,
+      "generated_dataset_constructors_present": false,
+      "original_reference": "New adaptation guide; default anchored to original PyTorch regression notebook",
+      "data": "Default is original Cabauw sample; classification requires the user's own labeled CSV.",
+      "preserved_default": {
+        "year_split_seeds": [
+          1000,
+          1000
+        ],
+        "split_index": 0,
+        "train_rows": 55007,
+        "validation_rows": 6598,
+        "test_rows": 10592,
+        "hidden_layers": [
+          1057,
+          1057,
+          1057,
+          1057,
+          1057
+        ],
+        "dropout": [
+          0.263,
+          0.263,
+          0.263,
+          0.263,
+          0.263
+        ],
+        "batch_size": 128,
+        "epochs": 1,
+        "optimizer": "Adam",
+        "learning_rate": 0.001,
+        "evidence_regularizer_coefficient": 5.806527626063491,
+        "feature_scaler": "RobustScaler",
+        "target_scaler": "MinMaxScaler(0,1)"
+      },
+      "explicit_adaptations": [
+        "User data input/output dimensions are adapted.",
+        "Random/group/time split options are for user data.",
+        "Guide demonstrates validation-NLL checkpoint selection, distinct from restored original workflows.",
+        "Classification starts from original Torch architecture and training budget; no synthetic default."
+      ],
+      "evaluation_review": "Preprocessing and vocabulary fitted on training rows, test outcomes used only after checkpoint freeze, exact NIG or categorical evaluation, saved split assignments/preprocessing/state/metadata and new-row inference.",
+      "verdict": "passes"
+    }
+  ],
+  "remaining_limits": [
+    "Full external mPING dataset is unavailable here; recorded Torch classification run explicitly uses the authors' bundled sample.",
+    "Original BERT notebook has no training/test dataset or trained task checkpoint; real-model scientific evaluation is not claimed.",
+    "Paper-figure, sounding, SHAP and dataset-preparation notebooks retain external data/checkpoint requirements and were not fully rerun.",
+    "Original short training budgets can give poor skill or calibration; settings were not retuned based on test results.",
+    "Native macOS/Windows, GPU and distributed execution are outside this notebook review."
+  ],
+  "documentation_review": {
+    "AUTHORS_NOTEBOOK_UPDATES.md": "Consistent with source, including original budgets, current/legacy API distinction and explicit full-data limits.",
+    "notebooks/README.md": "Consistent with source; balanced sampling/class weights belong to deterministic Keras classifier only."
+  },
+  "final_review_status": "No unresolved blocking fidelity or evaluation issues found."
+}

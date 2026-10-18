@@ -1,0 +1,75 @@
+{
+  "notebook": "notebooks/regression_example_torch.ipynb",
+  "dataset": "data/sample_cabauw_surface_layer.csv",
+  "dataset_sha256": "fe9ead12574f5041da1fc683ed85bf994aff0cab17227edec5398592b4ce2bde",
+  "data_mode": "original_bundled_cabauw_sample",
+  "split_observations": {
+    "train": 55007,
+    "validation": 6598,
+    "test": 10592
+  },
+  "preserved_training_settings": {
+    "hidden_layers": [
+      1057,
+      1057,
+      1057,
+      1057,
+      1057
+    ],
+    "dropout": [
+      0.263,
+      0.263,
+      0.263,
+      0.263,
+      0.263
+    ],
+    "batch_size": 128,
+    "optimizer": "Adam",
+    "learning_rate": 0.001,
+    "training_passes_per_model": 1,
+    "batches_per_model": 430,
+    "outer_group": "year",
+    "inner_group": "year",
+    "split_random_state": 1000,
+    "split_index": 0,
+    "outer_train_size": 0.9,
+    "inner_train_size": 0.885,
+    "point_loss": "L1Loss",
+    "evidential_loss": "LipschitzMSELoss",
+    "evidential_regularizer_coef": 5.806527626063491
+  },
+  "model_initialization_seed": 1000,
+  "device": "cpu",
+  "test_used_for_training_or_selection": false,
+  "original_full_data_reproduction_claimed": false,
+  "execution": {
+    "method": "IPython in-process; all code cells in order",
+    "python": "3.11.17",
+    "runtime_seconds": 62.696
+  },
+  "executed_code_cells": 23,
+  "figures": [
+    "validation/authors_notebook_figures/regression_example_torch_01.png",
+    "validation/authors_notebook_figures/regression_example_torch_02.png",
+    "validation/authors_notebook_figures/regression_example_torch_03.png"
+  ],
+  "test_metrics": {
+    "Deterministic L1": {
+      "mae": 0.0380756512,
+      "rmse": 0.0545680498,
+      "r2": 0.8831138959,
+      "nll": null
+    },
+    "Evidential Lipschitz-MSE": {
+      "mae": 0.0399488248,
+      "rmse": 0.0556469214,
+      "r2": 0.8784462665,
+      "nll": -1.5065948668
+    }
+  },
+  "csv_results": "validation/authors_tutorial_results/regression_example_torch",
+  "genuine_notebook_errors_corrected": [
+    "Correct split-description text to the original year-based code.",
+    "Evaluate means and variances in original target units using the fitted training scaler."
+  ]
+}

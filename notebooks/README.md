@@ -1,60 +1,83 @@
-# Executable CPU tutorials
+# Authors' examples with held-out evaluation
 
-Install the package with the `torch,notebooks` extras using the Python 3.11
-instructions in the main README. Start Jupyter from this repository. Each
-notebook is self-contained and can be run from its own directory or the
-repository root. Saved outputs show one seeded run, not a benchmark guarantee.
+The original examples use the authors' datasets and model settings. They now
+add explicit test-set metrics and visualisations, with compatibility and genuine
+calculation errors corrected. The Keras and PyTorch examples are **different
+original workflows**, not aliases. Their original snapshots remain in `legacy/`.
 
-| Notebook | What it demonstrates |
-| --- | --- |
-| `regression_example.ipynb` | NIG regression; untouched test MAE, RMSE, R², Student-t NLL, predictive intervals, coverage, PIT, and aleatoric/epistemic variances. |
-| `classifier_example.ipynb` | Evidential classification; untouched test accuracy, log loss, multiclass Brier score, ECE, confusion matrix, reliability, and uncertainty diagnostics. |
-| `regression_example_torch.ipynb`, `classifier_example_torch.ipynb` | Identical copies of the corresponding CPU tutorials, retained for existing links. |
-| `evidential_learning_your_data.ipynb` | Start here for your own CSV: explicit feature/target columns, regression or classification, random/group/time splits, train-only preprocessing, validation checkpoint selection, test results, saved models and preprocessing, and prediction after reload. Supports multiple regression targets. |
-| `dna_example_torch.ipynb` | A runnable sequence-classification pipeline with held-out test diagnostics. Uses synthetic DNA-like sequences and base-frequency features; it is a software example, not a biological model or a reproduction of the original transformer experiment. |
+| Notebook | Original data and configuration | Added evaluation |
+| --- | --- | --- |
+| `regression_example_torch.ipynb` | Bundled Cabauw CSV; `evidential_regression_torch.yml`; five 1057-unit layers; original year-based split, batch 128, Adam 0.001, one pass for deterministic and evidential models. | Physical-unit errors, predictive Student-t NLL/intervals/coverage/PIT, and aleatoric/epistemic plots. |
+| `classifier_example_torch.ipynb` | Original mPING precipitation configuration and four 212-unit layers; 100 epochs with at most 10 batches of 1024. Full data path is retained; explicitly select the bundled authors' sample when the full dataset is unavailable. | Test accuracy/log loss/Brier/ECE, confusion matrices, reliability and uncertainty plots for standard and evidential classifiers. |
+| `regression_example.ipynb` | Bundled Cabauw CSV; original surface-layer deterministic/Gaussian/evidential configurations, day-based splits, original 1/1/5-epoch demonstrations, two-member Gaussian ensemble, and MC-dropout settings. | Comparable held-out metrics and plots, valid Gaussian/Student-t diagnostics, and corrected ensemble/MC variance handling. |
+| `classifier_example.ipynb` | Original bundled precipitation sample, original deterministic/evidential Keras configurations, quantile preprocessing, balanced training, class weights, and 1/5 epochs. The deterministic architecture retains four 6024-unit layers. | Held-out test metrics and plots for standard, dropout, and evidential predictions. |
+| `dna_example_torch.ipynb` | Original `bert-base-uncased` demonstration, single sequence, 10-class and one-task heads. The original provides no train/test dataset. | Optional evaluation of a supplied trained checkpoint and real labeled test CSV; no replacement dataset or invented test scores. |
+| `evidential_learning_your_data.ipynb` | Separate adaptation guide. Defaults to the authors' Cabauw sample and original PyTorch regression model/settings; accepts your regression/classification CSV and adapts input/output dimensions. | Split guidance, train-only preprocessing, held-out metrics/plots, saved preprocessing/models, and inference after reload. |
 
-The custom-data guide defaults to synthetic regression, so it runs before you
-provide a CSV. Change only the configuration cell to begin with your data. Its
-classification and real-CSV, multi-target branches have also been executed.
-Group and chronological splitting are tested for disjoint membership, including
-repeated timestamps. Group/time split fractions refer to groups/time blocks and
-need not produce exactly those fractions of rows.
+## Install and run
 
-All tutorials keep test outcomes out of optimizer updates, preprocessing fits,
-checkpoint selection, and hyperparameter selection. If you tune settings after
-inspecting test performance, reserve a new final test set. Real repeated measures
-and time series normally require group or temporal splitting chosen for the
-scientific prediction task. Useful uncertainty must be assessed on held-out data;
-an evidential architecture alone does not guarantee calibration or detection of
-distribution shift.
-
-Regression intervals are central **Student-t predictive intervals for future
-observations**, not confidence intervals for the mean. Marginal variances do not
-model cross-target covariance. Classification's DST uncertainty mass and its
-aleatoric/epistemic variance components are distinct quantities.
-
-Run every tutorial cell in order using Jupyter's Restart Kernel and Run All, or:
+Follow the Python 3.11 / PyTorch CPU Conda setup in the main README. The weather
+notebooks require the `data` extra; Keras notebooks also require `keras`. The
+original balanced Keras classifier needs `imbalanced-learn`:
 
 ```bash
-python examples/execute_notebooks.py notebooks/regression_example.ipynb notebooks/classifier_example.ipynb notebooks/evidential_learning_your_data.ipynb notebooks/dna_example_torch.ipynb
-python examples/validate_custom_notebook.py
+python -m pip install -c requirements/validated-py311.txt -e ".[torch,keras,data,notebooks]"
+python -m pip install imbalanced-learn
+python -m jupyter lab
 ```
 
-The execution helper uses IPython in process and saves rendered plots and cell
-outputs; it is also useful on hosts that prohibit Jupyter kernel sockets.
+Set `KERAS_BACKEND=torch` before importing Keras (bash/zsh:
+`export KERAS_BACKEND=torch`; PowerShell: `$env:KERAS_BACKEND="torch"`).
+The DNA notebook documents its separate optional `transformers` and pretrained
+model/checkpoint requirements. Its guarded setup can be read without downloading
+weights.
 
-## Historical research material
+Start Jupyter from this unpacked repository or its `notebooks` directory. The
+notebooks locate repository-relative CSV/config paths automatically. Use
+Restart Kernel and Run All. An alternative execution method is:
 
-The original introductory and DNA notebooks are retained in `legacy/` so the
-authors' original workflows remain available. They are historical reference
-material and have not been made self-contained or rerun against private data.
+```bash
+python examples/execute_notebooks.py notebooks/regression_example_torch.ipynb
+```
 
-`paper_figures_regression.ipynb`, `paper_figures_categorical.ipynb`,
-`evidential_figure_1.ipynb`, `sounding-figure.ipynb`, `shap.ipynb`, and
-`subset_reference_datasets.ipynb` depend on original datasets, saved models,
-external services, or site-specific paths. They are research reproduction and
-data-preparation notebooks, not the supported introductory tutorials. Genuine
-uncertainty calculation corrections are documented in `SCIENTIFIC_CHANGES.md`;
-these original experiments have **not** been rerun or their results replaced
-with synthetic results. Use the current tutorials' evaluation workflow when
-adapting them to accessible datasets.
+The PyTorch classifier's default YAML path refers to the authors' full mPING
+file on their filesystem. To explicitly use their bundled real sample:
+
+```bash
+# bash/zsh; run from the repository root
+MILES_PTYPE_DATA="$PWD/data/ptype_sample.parquet" python examples/execute_notebooks.py notebooks/classifier_example_torch.ipynb
+```
+
+```powershell
+# PowerShell; run from the repository root
+$env:MILES_PTYPE_DATA = (Resolve-Path data/ptype_sample.parquet).Path
+python examples/execute_notebooks.py notebooks/classifier_example_torch.ipynb
+```
+
+The notebook records the selected path. There is no automatic substitution of
+generated data. The bundled Keras classifier already uses this sample in the
+original notebook. The large original Keras architecture requires several GB
+of memory; it has not been replaced by a smaller network.
+
+## Interpretation and scope
+
+Scalers fit training data only. New test-set summaries do not select epochs,
+settings, thresholds, or models in the restored originals. The custom-data guide
+separately illustrates validation-based selection. Report data version, split,
+seed, training settings, and package revision when using these examples in a
+paper. The short original demonstration budgets can yield imperfect predictive
+skill and calibration; the displayed results are not tuned on the test set.
+
+Regression intervals describe future observations, not confidence intervals for
+the mean. Gaussian models use Gaussian predictive distributions; NIG models use
+Student-t predictions. A finite ensemble is a mixture, not a single distribution
+obtained by averaging its parameters. Classification DST uncertainty mass and
+variance components are distinct quantities.
+
+`AUTHORS_NOTEBOOK_UPDATES.md` records what was preserved and why individual
+corrections were necessary. `VALIDATION.md` distinguishes actual author-data runs
+from unit-test fixtures and unavailable external resources.
+
+The paper-figure, sounding, SHAP, and dataset-preparation notebooks retain their
+original research role. Full experiments requiring external weather data and
+saved checkpoints have not been rerun or replaced with generated-data results.

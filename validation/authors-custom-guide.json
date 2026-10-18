@@ -1,0 +1,13 @@
+{
+  "notebook": "notebooks/evidential_learning_your_data.ipynb",
+  "dataset": "data/sample_cabauw_surface_layer.csv",
+  "code_cells": 10,
+  "figures": 2,
+  "execution": {
+    "method": "IPython in-process; all code cells in order",
+    "python": "3.11.17",
+    "runtime_seconds": 40.62
+  },
+  "csv_branch_tests": "validation/authors-guide-csv-tests.log; generated fixtures used only as tests",
+  "split_fidelity_tests": "validation/authors-custom-fidelity-tests.log"
+}

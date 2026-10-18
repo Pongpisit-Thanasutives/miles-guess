@@ -1,0 +1,176 @@
+{
+  "validation_date": "2026-10-18",
+  "runtime": {
+    "python": "3.11.17",
+    "platform": "Linux-6.18.55-x86_64-with-glibc2.39",
+    "torch": "2.14.1+cpu",
+    "numpy": "2.4.6",
+    "pandas": "2.3.3",
+    "scipy": "1.17.1",
+    "omp_num_threads": 2,
+    "mkl_num_threads": 2
+  },
+  "notebooks": [
+    {
+      "notebook": "notebooks/regression_example_torch.ipynb",
+      "dataset": "data/sample_cabauw_surface_layer.csv",
+      "dataset_sha256": "fe9ead12574f5041da1fc683ed85bf994aff0cab17227edec5398592b4ce2bde",
+      "data_mode": "original_bundled_cabauw_sample",
+      "split_observations": {
+        "train": 55007,
+        "validation": 6598,
+        "test": 10592
+      },
+      "preserved_training_settings": {
+        "hidden_layers": [
+          1057,
+          1057,
+          1057,
+          1057,
+          1057
+        ],
+        "dropout": [
+          0.263,
+          0.263,
+          0.263,
+          0.263,
+          0.263
+        ],
+        "batch_size": 128,
+        "optimizer": "Adam",
+        "learning_rate": 0.001,
+        "training_passes_per_model": 1,
+        "batches_per_model": 430,
+        "outer_group": "year",
+        "inner_group": "year",
+        "split_random_state": 1000,
+        "split_index": 0,
+        "outer_train_size": 0.9,
+        "inner_train_size": 0.885,
+        "point_loss": "L1Loss",
+        "evidential_loss": "LipschitzMSELoss",
+        "evidential_regularizer_coef": 5.806527626063491
+      },
+      "model_initialization_seed": 1000,
+      "device": "cpu",
+      "test_used_for_training_or_selection": false,
+      "original_full_data_reproduction_claimed": false,
+      "execution": {
+        "method": "IPython in-process; all code cells in order",
+        "python": "3.11.17",
+        "runtime_seconds": 62.696
+      },
+      "executed_code_cells": 23,
+      "figures": [
+        "validation/authors_notebook_figures/regression_example_torch_01.png",
+        "validation/authors_notebook_figures/regression_example_torch_02.png",
+        "validation/authors_notebook_figures/regression_example_torch_03.png"
+      ],
+      "test_metrics": {
+        "Deterministic L1": {
+          "mae": 0.0380756512,
+          "rmse": 0.0545680498,
+          "r2": 0.8831138959,
+          "nll": null
+        },
+        "Evidential Lipschitz-MSE": {
+          "mae": 0.0399488248,
+          "rmse": 0.0556469214,
+          "r2": 0.8784462665,
+          "nll": -1.5065948668
+        }
+      },
+      "csv_results": "validation/authors_tutorial_results/regression_example_torch",
+      "genuine_notebook_errors_corrected": [
+        "Correct split-description text to the original year-based code.",
+        "Evaluate means and variances in original target units using the fitted training scaler."
+      ]
+    },
+    {
+      "notebook": "notebooks/classifier_example_torch.ipynb",
+      "dataset": "data/ptype_sample.parquet",
+      "dataset_sha256": "d10c68959901d2ee265c11678a11a48d1bb306304c50e126d7a2ef5d81eaa00b",
+      "data_mode": "original_bundled_ptype_sample_explicit_environment_override",
+      "split_observations": {
+        "train": 7225,
+        "validation": 908,
+        "test": 4031
+      },
+      "preserved_training_settings": {
+        "hidden_layers": [
+          212,
+          212,
+          212,
+          212
+        ],
+        "dropout": [
+          0.1167,
+          0.1167,
+          0.1167,
+          0.1167
+        ],
+        "batch_size": 1024,
+        "optimizer": "Adam",
+        "learning_rate": 0.001,
+        "epochs_per_model": 100,
+        "maximum_batches_per_epoch": 10,
+        "actual_batches_per_epoch_on_sample": 8,
+        "test_split": "configured_case_study_dates_or_day_at_or_after_2020-07-01",
+        "development_group": "day",
+        "development_train_size": 0.9,
+        "split_index": 0,
+        "scaling": "training_only_per_feature_robust",
+        "point_loss": "CrossEntropyLoss_on_logits",
+        "evidential_loss": "edl_digamma_loss",
+        "kl_annealing_step": 10
+      },
+      "model_initialization_seed": 1000,
+      "device": "cpu",
+      "test_used_for_training_or_selection": false,
+      "original_full_data_reproduction_claimed": false,
+      "execution": {
+        "method": "IPython in-process; all code cells in order",
+        "python": "3.11.17",
+        "runtime_seconds": 36.636
+      },
+      "executed_code_cells": 20,
+      "figures": [
+        "validation/authors_notebook_figures/classifier_example_torch_01.png",
+        "validation/authors_notebook_figures/classifier_example_torch_02.png",
+        "validation/authors_notebook_figures/classifier_example_torch_03.png",
+        "validation/authors_notebook_figures/classifier_example_torch_04.png"
+      ],
+      "test_metrics": {
+        "Standard classifier": {
+          "accuracy": 0.8796824609,
+          "log_loss": 0.3306802999,
+          "brier": 0.1693573585,
+          "ece": 0.0263581203
+        },
+        "Evidential classifier": {
+          "accuracy": 0.8600843463,
+          "log_loss": 0.5526124782,
+          "brier": 0.2559144377,
+          "ece": 0.1959863892
+        }
+      },
+      "csv_results": "validation/authors_tutorial_results/classifier_example_torch",
+      "explicit_execution_override": {
+        "MILES_PTYPE_DATA": "data/ptype_sample.parquet"
+      },
+      "notebook_default": "Original full mPING parquet path from config/evidential_classifier_torch.yml",
+      "genuine_notebook_errors_corrected": [
+        "Feed logits to CrossEntropyLoss and apply softmax once during probability evaluation.",
+        "Pass device by keyword to edl_digamma_loss; the sixth positional parameter is class weights.",
+        "Aggregate losses/accuracy by actual observations and keep each model history separate.",
+        "Use normalized Dirichlet means for evidential accuracy and held-out probability scores."
+      ]
+    }
+  ],
+  "all_figures_visually_reviewed": true,
+  "limitations": [
+    "Original full mPING parquet was unavailable; explicitly selected authors bundled sample was used.",
+    "Linux CPU execution; no native macOS, Windows, or GPU execution in this validation.",
+    "Full unchanged author notebook training lengths were used; no test-driven tuning."
+  ]
+}

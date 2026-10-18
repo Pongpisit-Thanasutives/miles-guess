@@ -1,7 +1,8 @@
-"""Execute real-CSV classification and multi-target regression tutorial branches.
+"""Exercise CSV classification and multi-target regression using generated test fixtures.
 
 Run from the repository root: python examples/validate_custom_notebook.py.
 Temporary fixtures and model outputs are removed when validation finishes.
+These are automated tests, not datasets or results for the authors' examples.
 """
 from pathlib import Path
 import tempfile
@@ -31,7 +32,7 @@ def main():
             configuration = notebook.cells[2].source
             configuration += (f"\nTASK = {task!r}\nDATA_PATH = Path({str(csv)!r})\n"
                               f"FEATURE_COLUMNS = ['x1', 'x2', 'x3']\nTARGET_COLUMNS = {targets!r}\n"
-                              f"EPOCHS = 4\nOUTPUT_DIR = Path({str(temporary / task)!r})\n"
+                              f"EPOCHS = 4\nBATCH_SIZE = 64\nSPLIT_STRATEGY = 'random'\nTEST_FRACTION = 0.2\nVALIDATION_FRACTION = 0.2\nOUTPUT_DIR = Path({str(temporary / task)!r})\n"
                               "OUTPUT_DIR.mkdir(parents=True, exist_ok=True)\n")
             notebook.cells[2].source = configuration
             notebook.cells.append(nbformat.v4.new_code_cell(
@@ -42,7 +43,7 @@ def main():
                 "assert (OUTPUT_DIR/'model.pt').exists()\n"))
             path = temporary / f"custom_csv_{task}.ipynb"
             nbformat.write(notebook, path)
-            execute_notebook(path, write=False)
+            execute_notebook(path, cwd=root, write=False)
 
 
 if __name__ == "__main__":

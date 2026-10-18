@@ -66,10 +66,11 @@ python examples/uncertainty_quickstart.py
 python -m jupyter lab
 ```
 
-Start with the [notebook guide](notebooks/README.md), including regression,
-classification, and training with your own data. The updated introductory
-notebooks use synthetic data and CPU training; historical weather notebooks
-may require external datasets.
+Start with the [notebook guide](notebooks/README.md), including the authors’ distinct
+Keras and PyTorch regression/classification examples and a separate guide for your data. The introductory notebooks retain the authors’ real datasets, model configurations,
+and training budgets, with added held-out evaluation and plots. See
+[AUTHORS_NOTEBOOK_UPDATES.md](AUTHORS_NOTEBOOK_UPDATES.md) for preserved settings
+and required corrections; some original data paths and pretrained models are external.
 
 The constraints file pins installed scientific, data, Keras, and test packages
 from the validation environment. Constraints do not install unrequested extras.

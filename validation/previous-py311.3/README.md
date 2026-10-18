@@ -1,0 +1,1 @@
+These execution logs describe the superseded synthetic tutorials from py311.3. They are retained solely as historical validation records, not results from the restored authors’ examples. Current authors-data execution records use the authors- prefix.

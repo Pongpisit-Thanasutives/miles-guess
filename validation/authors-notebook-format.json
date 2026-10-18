@@ -1,0 +1,50 @@
+[
+  {
+    "file": "notebooks/regression_example.ipynb",
+    "code_cells": 10,
+    "embedded_executed_code_cells": 10,
+    "figures": 6,
+    "format_valid": true,
+    "error_outputs": 0
+  },
+  {
+    "file": "notebooks/classifier_example.ipynb",
+    "code_cells": 5,
+    "embedded_executed_code_cells": 5,
+    "figures": 3,
+    "format_valid": true,
+    "error_outputs": 0
+  },
+  {
+    "file": "notebooks/regression_example_torch.ipynb",
+    "code_cells": 23,
+    "embedded_executed_code_cells": 23,
+    "figures": 3,
+    "format_valid": true,
+    "error_outputs": 0
+  },
+  {
+    "file": "notebooks/classifier_example_torch.ipynb",
+    "code_cells": 20,
+    "embedded_executed_code_cells": 20,
+    "figures": 4,
+    "format_valid": true,
+    "error_outputs": 0
+  },
+  {
+    "file": "notebooks/dna_example_torch.ipynb",
+    "code_cells": 11,
+    "embedded_executed_code_cells": 0,
+    "figures": 0,
+    "format_valid": true,
+    "error_outputs": 0
+  },
+  {
+    "file": "notebooks/evidential_learning_your_data.ipynb",
+    "code_cells": 10,
+    "embedded_executed_code_cells": 10,
+    "figures": 2,
+    "format_valid": true,
+    "error_outputs": 0
+  }
+]

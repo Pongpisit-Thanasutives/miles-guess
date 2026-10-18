@@ -1,0 +1,26 @@
+[
+  {
+    "notebook": "notebooks/regression_example.ipynb",
+    "code_cells": 10,
+    "figures": 6,
+    "execution": {
+      "method": "IPython in-process; all code cells in order",
+      "python": "3.11.17",
+      "runtime_seconds": 20.63
+    },
+    "configuration": "Original authors YAML with original notebook one/five-epoch overrides; no architecture reduction",
+    "dataset": "Bundled authors Cabauw sample"
+  },
+  {
+    "notebook": "notebooks/classifier_example.ipynb",
+    "code_cells": 5,
+    "figures": 3,
+    "execution": {
+      "method": "IPython in-process; all code cells in order",
+      "python": "3.11.17",
+      "runtime_seconds": 116.81
+    },
+    "configuration": "Original authors YAML with original notebook one/five-epoch overrides; no architecture reduction",
+    "dataset": "Bundled authors precipitation-type sample; original deterministic YAML selected dataset reused for both models"
+  }
+]

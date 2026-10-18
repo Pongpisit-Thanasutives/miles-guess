@@ -1,167 +1,139 @@
 # Validation report
 
-Date: 2026-10-17. Local version: **2025.1.0+py311.3**.
+Date: **2026-10-18**. Local revision: **2025.1.0+py311.4**.
 Upstream base: `69775bef5d65b50e53692d860092e0295b4e7d23`.
-This is a corrected local derivative, not an upstream release.
 
-## Executed environment and results
+This revision restores the authors' examples and extends their held-out
+assessment. It does not replace their datasets or architectures with generated
+examples. `AUTHORS_NOTEBOOK_UPDATES.md` documents preservation and the specific
+compatibility/calculation errors corrected.
 
-Execution used **Linux x86-64, Python 3.11.17, CPU**, with PyTorch
-**2.14.1+cpu**, NumPy **2.4.6**, SciPy 1.17.1, pandas 2.3.3,
-scikit-learn 1.9.1, Matplotlib 3.11.2, and optional Keras 3.15.1 using its
-PyTorch backend. The exact environment is in
-`validation/environment-audit-py311.txt`; recommended direct constraints are
-`requirements/validated-py311.txt`.
+## Current validation
 
-The complete combined suite passed **426 tests, with 4 skips**. Three skips
-require GPUs; the fourth attempts a real CPU Gloo process group, whose socket
-creation is prohibited by this host. This is an environmental skip, not a
-successful distributed runtime test. Logs and JUnit results are
-`validation/audit-py311-torch214.log` and `.xml`.
+Executed on **Linux x86-64, Python 3.11.17, PyTorch 2.14.1+cpu,
+NumPy 2.4.6, Keras 3.15.1 with its Torch backend**. The complete test suite
+passed **453 tests, with 4 skips**: three require CUDA and one requires Gloo
+socket creation prohibited by this host. Logs and JUnit results are
+`validation/authors-full-suite.log` and `.xml`. Upstream Keras/NumPy array
+conversion deprecation warnings are recorded, not suppressed.
 
-The optional Keras paths emit upstream NumPy `__array__(copy=...)`
-deprecation warnings from Keras' Torch backend. They are recorded in the log,
-not globally suppressed. The supported CPU PyTorch workflow does not need
-Keras or TensorFlow. A separately installed native-only environment passed **296 tests, with 6
-skips**: one optional Keras module, one optional bridgescaler test, the Gloo
-socket restriction, and three GPU tests. Four older Keras-only test files are
-not collected without Keras. This environment has no Keras, TensorFlow, JAX,
-or notebook runtime packages. The final native-only run emits no warnings.
-These tests overlap the full suite and are not additional distinct tests.
-Results are recorded in `validation/audit-native*`.
+New tests compare notebook settings with the authors' originals, exercise
+Gaussian-mixture densities and quantiles, compare the custom guide's actual
+split indices against the original notebook, verify dataset hashes, and test
+BERT-facing interfaces with explicitly mocked models. The original core tests
+continue to pass. All 37 core library Python files are byte-identical to the
+previous corrected delivery; only the local version marker changes. Source
+comparison is recorded in `validation/authors-core-preservation.json`.
 
-Coverage over `mlguess` and `applications`, excluding the test code itself:
+The prior function-level audit remains in `validation/function-audit.csv` and
+`validation/function-audit-summary.json`: 355 named functions plus three lambdas
+reviewed, with 352 named function bodies exercised. Its coverage measurements
+belong to py311.3; this revision did not recompute coverage or claim newly tested
+hardware/backend branches. The core implementations were preserved.
 
-| Measure | Executed / measured | Coverage |
+## Author-data notebook execution
+
+Both bundled datasets are byte-identical to upstream. The seven relevant YAML
+model dictionaries also match upstream. All original notebook training-budget
+overrides are retained. No architecture was reduced to make CPU execution easier.
+
+| Notebook | Execution on original observations | Code cells / figures |
 | --- | --- | --- |
-| Statements | 4,509 / 5,125 | **87.98%** |
-| Branch arcs | 1,234 / 1,748 | **70.59%** |
-| Combined statements and branch arcs | 5,743 / 6,873 | **83.56%** |
+| `regression_example_torch.ipynb` | Cabauw; 55,007 train / 6,598 validation / 10,592 test. Original five 1057-unit layers, one pass per model. | 23 / 3 |
+| `classifier_example_torch.ipynb` | Explicitly selected authors' bundled precipitation sample; 7,225 / 908 / 4,031. Original four 212-unit layers, 100 epochs, cap of 10 batches. | 20 / 4 |
+| `regression_example.ipynb` | Cabauw; 57,431 / 7,578 / 7,188. Original Keras model configurations and 1/1/5-epoch overrides, ensemble and MC settings. | 10 / 6 |
+| `classifier_example.ipynb` | Authors' bundled precipitation sample and original split. Preserved the 6024-unit, four-layer deterministic classifier, balanced training/weights, and original evidential model; 1/5 epochs. | 5 / 3 |
+| `evidential_learning_your_data.ipynb` | Default changed to the authors' Cabauw data, original Torch model, preprocessing, year split and one-pass budget. | 10 / 2 |
 
-Coverage is evidence of execution, not proof that every behavior or input is
-correct. `validation/function-audit.csv` lists the individual functions,
-source review, observed function-body execution, missing lines/branches, and
-reviewer limitations. It does not count importing a function definition as
-calling that function. Lambdas have separate, conservative invocation status.
-`validation/function-audit-summary.json` summarizes the inventory: **355 named
-functions/methods/nested functions and 3 lambdas across 41 modules**. Every entry
-received source review; **352 of the 355 named functions** have observed own-body
-execution. Three named function bodies were not observed, and lambda invocation
-is conservatively marked indeterminate from line coverage. All gaps are listed.
+These five notebooks contain **68 executed code cells and 18 figures**, with
+saved outputs and no error outputs. The figures were visually inspected.
+Keras documentation copies match their corresponding restored notebooks; the
+Keras and PyTorch examples are distinct, not aliases.
 
-## What was checked
+The PyTorch precipitation notebook still defaults to the authors' full mPING
+path in YAML. Execution here explicitly used `MILES_PTYPE_DATA` to select their
+bundled real sample. That substitution is recorded and is not a full-dataset
+reproduction claim. The original Keras classifier already selects that sample.
+Both workflows retain the authors' filters, held-out dates, features and class
+ordering. Exact paths, hashes, settings and split counts are in
+`validation/authors-data-provenance.json` and `validation/authors-torch-notebooks.json`.
 
-The audit combines source review with independently calculated expected
-values and runtime tests. It covers:
+Test outcomes did not select training settings or tune the new plots. Poor
+short-budget performance, minority-class errors, and imperfect calibration
+remain visible. Physical-unit metrics, Student-t predictive intervals, actual
+Gaussian-mixture evaluation, and per-member scalers are verified. The separate
+custom-data guide illustrates validation-only checkpoint selection, saving and
+reload; it does not change the originals' training selection rules.
 
-- NIG Student-t likelihood/moments, Dirichlet moments/KL, original-equation
-  loss and gradient comparisons, finite-mixture law of total variance,
-  MC dropout state, Gaussian variance conversion, and affine inverse scaling.
-- Brier/CSI/ECE/MCE, negative-target MAPE, missing-pair alignment, constant
-  and endpoint bins, PIT/CRPS, and rendered classification/regression plots.
-- Unequal minibatches, weighted/sum-reduced losses, optimizer updates,
-  validation aggregation, min/max checkpoint selection, resume behavior,
-  checkpoint format/device routing, and actual save/reload prediction equality.
-- Current and legacy Keras fit/loss/layer/callback paths, one-dimensional and
-  multiple targets, sample weights, serialization, and optimizer restoration.
-- Dataset/preprocessor options, train-only scaling, class axes, small training
-  sets, application CLI overrides, HPO test isolation, prediction row order,
-  and PBS command construction using dry runs/mocks only.
+Notebook records:
 
-Per-area logs and ledgers are `validation/audit-{torch,torch-checkpoint,keras,
-metrics,applications,evaluation}.json`. Some are overlapping subsets of the
-combined suite; do not add their test totals together. Corrections and exact
-counterexamples are documented in `SCIENTIFIC_CHANGES.md`. Genuine numerical,
-shape, weighting, and metric errors were fixed while retaining the authors'
-model families and valid scientific equations.
+- `validation/authors-torch-notebooks.json` and `.log`
+- `validation/authors-keras-notebooks-summary.json` and `authors-keras-notebooks.log`
+- `validation/authors-custom-guide.json` and `.log`
+- `validation/authors-notebook-review.json` (independent source/fidelity review)
+- `validation/authors_notebook_figures/` (standalone PNGs)
+- `validation/authors_tutorial_results/` and `authors_keras_metrics/` (CSV results)
 
-## Executed notebooks
+The custom guide's CSV regression/classification branches were also executed
+using temporary generated **test fixtures**. These validate input handling,
+multiple targets, singleton batches, and save/reload. They are not the default
+example data or reported authors' results. Group/time partition tests include
+repeated timestamps; an additional test verifies the default Cabauw split
+exactly against the authors' archived code.
 
-All six current tutorial filenames have saved executed outputs and pass
-notebook-format validation. Four are distinct tutorials; the `_torch` regression
-and classification filenames are exact aliases. Documentation copies are also
-refreshed. The distinct notebooks executed **32 code cells and 13 figures**:
+## DNA and unavailable external resources
 
-| Tutorial | Code cells | Figures |
-| --- | --- | --- |
-| `regression_example.ipynb` | 6 | 4 |
-| `classifier_example.ipynb` | 6 | 5 |
-| `evidential_learning_your_data.ipynb` | 10 | 2 |
-| `dna_example_torch.ipynb` | 10 | 2 |
+The original DNA notebook contains one illustrative sequence and BERT model
+heads, not an experimental dataset, training procedure or held-out split. Those
+original settings are restored. An optional section now evaluates a supplied
+trained checkpoint on a real labeled test CSV with metrics and plots.
 
-Plots were visually reviewed. Metrics, predictions, intervals, calibration,
-and confusion matrices use held-out test data after validation-only checkpoint
-selection. The custom-data guide's real-CSV classification and multi-target
-regression branches were separately executed, including a 109-row dataset
-that leaves a final training minibatch of one row. The guide saves/reloads
-models, fitted scalers, class mappings, split assignments, and experiment
-settings. Group/time splits have independent disjointness tests, including
-repeated timestamps.
+Its **11 guarded code cells** execute successfully without the external model
+assets. **13 mock-interface tests** exercise numerical heads, inference state,
+loss calls, target scaling, checkpoint handling and both evaluation/plot paths.
+Pretrained BERT inference/training and actual DNA test-set metrics were **not**
+executed: cached weights, trained checkpoints and real labeled test data were
+not supplied. No dataset or scores are invented. See
+`validation/authors-dna-notebook.json` and `.log`.
 
-The guide explicitly disables BatchNorm to support singleton minibatches.
-Its classification example initializes the output bias positively to prevent
-an all-negative ReLU-evidence head from producing zero training gradients;
-the library's evidence transform is unchanged. Results are shown honestly,
-including imperfect calibration. Synthetic test accuracy is not evidence of
-performance on a user's scientific dataset.
+All notebooks were run in-order with in-process IPython because this host blocks
+Jupyter kernel sockets. Native Jupyter kernel startup was not validated here.
+External paper-figure, sounding and SHAP experiments were not rerun; their
+original data/checkpoint requirements remain.
 
-All code cells were executed in order using **in-process IPython** because
-this host prohibits native Jupyter kernel sockets. Ordinary Jupyter kernel
-execution was not verified here. `examples/execute_notebooks.py` reproduces
-this method; `examples/validate_custom_notebook.py` exercises the CSV branches.
-Execution logs and PNGs are under `validation/notebooks-*` and
-`validation/notebook_figures/`.
+## Packaging and compatibility
 
-Historical external-data research notebooks and original archived examples
-were not rerun. Their required datasets/checkpoints are unavailable here.
-Affected scientific cells have focused synthetic tests; this does not reproduce
-the paper's experiments. See `notebooks/README.md` for the precise scope.
+The recommended Python 3.11 / PyTorch 2.14.1 CPU / NumPy 2.4.6 setup is unchanged.
+The prior Windows x86-64 and macOS 14+ Apple Silicon binary-wheel resolution
+records remain applicable to the unchanged core requirements. They are
+compatibility checks, not native execution. **Native Windows/macOS, CUDA/AMP,
+FSDP, TensorFlow/JAX and live external services remain unexecuted.** Multi-rank
+Trainer/application execution remains explicitly unsupported.
 
-## Compatibility and remaining runtime gaps
-
-Fresh **binary-only dependency resolution** succeeded with the recommended
-constraints for Python 3.11 on Windows x86-64 and macOS 14+ Apple Silicon.
-Records are `validation/audit-resolve-{windows,macos}.log` and
-`validation/audit-resolved-{windows,macos}.txt`. This verifies compatible wheel
-availability, not native runtime behavior. Intel/Rosetta macOS is not a target
-of these modern official PyTorch wheels.
-
-The CI workflow configures Linux, Windows, and macOS ARM64 test jobs. It was
-not pushed or executed remotely for this delivery. **Native macOS/Windows,
-CUDA/AMP, GPU FSDP, TensorFlow/JAX, real cluster submissions, live tracking/tuning
-services, and production geospatial data remain unexecuted.** Mocked device and
-wrapper tests are labeled as such. Multi-rank trainers/applications now reject
-execution explicitly because global metrics and coordinated model selection
-are not implemented reliably. Single-device CPU and CUDA interfaces remain;
-only CPU execution was verified.
-
-The recommended upgrade is PyTorch **2.14.1** while keeping Python **3.11** and
-NumPy **2.4.6**. The older declared minimum PyTorch 2.5.1 was exercised in the
-previous revision, but this revision's full audit uses 2.14.1. Older `lotv-*`
-and `environment-lotv-*` files are retained historical records, not current
-validation of the old environment.
+Build, dependency, lint, notebook-format and installed-wheel smoke checks are
+recorded under `validation/authors-*`. Old `audit-*` and `lotv-*` files describe
+previous core audits. Superseded synthetic-notebook execution logs are marked
+historical under `validation/previous-py311.3/`; their plots/results have been
+removed from the current delivery.
 
 ## Reproduce
 
-Follow the platform-specific installation commands in `README.md`, then:
+Follow the platform-specific Conda and pip commands in `README.md` and the
+additional notebook dependencies/explicit precipitation path instructions in
+`notebooks/README.md`. Then:
 
 ```bash
 python -m pip check
 python -m pytest -q
-python examples/cpu_quickstart.py
-python examples/uncertainty_quickstart.py
-python examples/execute_notebooks.py notebooks/regression_example.ipynb notebooks/classifier_example.ipynb notebooks/evidential_learning_your_data.ipynb notebooks/dna_example_torch.ipynb
+python examples/execute_notebooks.py notebooks/regression_example_torch.ipynb
+python examples/execute_notebooks.py notebooks/regression_example.ipynb notebooks/classifier_example.ipynb
+python examples/execute_notebooks.py notebooks/evidential_learning_your_data.ipynb
 python examples/validate_custom_notebook.py
 python -m build
 ```
 
-For optional Keras tests install `.[torch,keras,data,test]` and set
-`KERAS_BACKEND=torch` before importing Keras. For coverage also install
-`pytest-cov`, then run `python -m pytest -q --cov --cov-report=json:validation/audit-coverage.json`
-and `python examples/build_function_audit.py`. Optional uninstalled dependency
-branches are skipped rather than silently treated as tested.
-
-Build, dependency, lint, wheel-install, and outside-source CPU smoke evidence
-is retained in the `validation/audit-*` records. Passing this audit supports the
-stated use cases; it cannot certify that every function is error-free or that
-uncertainty estimates will be calibrated on a new dataset.
+Set `KERAS_BACKEND=torch` before importing Keras. The full suite requires the
+optional Keras/data dependencies; PyTorch-only installations skip those paths.
+Passing these tests supports the stated use cases and corrections, not universal
+absence of errors, empirical calibration on new data, or reproduction of every
+result in the authors' paper.

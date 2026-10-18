@@ -1,0 +1,58 @@
+{
+  "validated_at_utc": "2026-10-18T06:58:35.913655+00:00",
+  "notebook": "notebooks/dna_example_torch.ipynb",
+  "test_file": "mlguess/tests/test_authors_dna_notebook.py",
+  "environment": {
+    "python": "3.11.17",
+    "torch": "2.14.1+cpu",
+    "numpy": "2.4.6",
+    "device": "cpu"
+  },
+  "default_notebook_execution": {
+    "method": "IPython in-process; all code cells in order; --validation-only",
+    "code_cells_passed": 11,
+    "figures": 0,
+    "saved_outputs": false,
+    "exit_status": 0,
+    "pretrained_weights_executed": false,
+    "pretrained_weights_downloaded": false,
+    "skip_reasons": [
+      "RUN_PRETRAINED_DEMO=False: original single-sequence classifier and regressor demonstrations were not run.",
+      "TEST_CSV=None: no actual held-out data were supplied.",
+      "CLASSIFIER_CHECKPOINT=None and REGRESSOR_CHECKPOINT=None: no trained task checkpoints were supplied."
+    ]
+  },
+  "mock_interface_tests": {
+    "passed": 13,
+    "exit_status": 0,
+    "scope": [
+      "original configuration and embedded regression-loss fidelity",
+      "deterministic classifier inference and Dirichlet variance identity",
+      "affine regression scaling and retained training_var metadata",
+      "NIG parameter stability at floating-point extremes",
+      "batched output order, shape, and checkpoint reload",
+      "invalid inference inputs",
+      "classification and original regression-loss gradients",
+      "both optional held-out evaluation, CSV export, and plotting code paths with fixture rows"
+    ],
+    "real_bert_training_or_performance_test": false
+  },
+  "actual_test_metrics_claimed": false,
+  "optional_dependency_instructions": "Notebook includes python -m pip install transformers, with no unsupported version pin; cached bert-base-uncased model/tokenizer required.",
+  "original_configuration": {
+    "backbone": "bert-base-uncased",
+    "pooling": "CLS hidden state",
+    "classes": 10,
+    "regression_tasks": 1,
+    "sequence": "AGCTAGCTAGCT",
+    "training_var_metadata": [
+      0.0033433
+    ],
+    "illustrative_regression_target": 1.45456457,
+    "classification_loss": "digamma",
+    "annealing_coefficient": 10.0,
+    "epoch": 0,
+    "regression_tolerance": 1e-08
+  },
+  "log": "validation/authors-dna-notebook.log"
+}

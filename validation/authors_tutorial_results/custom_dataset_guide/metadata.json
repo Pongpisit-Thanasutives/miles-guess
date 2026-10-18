@@ -1,0 +1,63 @@
+{
+  "task": "regression",
+  "features": [
+    "wind_speed:10_m:m_s-1",
+    "potential_temperature_skin_change:10_m:K_m-1",
+    "bulk_richardson:10_m:None",
+    "mixing_ratio_skin_change:2_m:g_kg-1_m-1"
+  ],
+  "targets": [
+    "friction_velocity:surface:m_s-1"
+  ],
+  "split_strategy": "group",
+  "data_path": "/workspace/scratch/d7d34632ac75/miles-guess/data/sample_cabauw_surface_layer.csv",
+  "authors_sample": true,
+  "authors_split_seeds": {
+    "outer": 1000,
+    "inner": 1000,
+    "split_index": 0
+  },
+  "author_config": "config/evidential_regression_torch.yml",
+  "seed": 1000,
+  "best_epoch": 1,
+  "model_kwargs": {
+    "input_size": 4,
+    "output_size": 1,
+    "layer_size": [
+      1057,
+      1057,
+      1057,
+      1057,
+      1057
+    ],
+    "dr": [
+      0.263,
+      0.263,
+      0.263,
+      0.263,
+      0.263
+    ],
+    "batch_norm": false,
+    "lng": true
+  },
+  "torch": "2.14.1+cpu",
+  "numpy": "2.4.6",
+  "training": {
+    "optimizer": "Adam",
+    "learning_rate": 0.001,
+    "batch_size": 128,
+    "max_epochs": 1,
+    "patience": null,
+    "test_fraction": 0.1,
+    "validation_fraction": 0.1035,
+    "group_column": "year",
+    "time_column": null,
+    "regression_loss": "LipschitzMSELoss",
+    "regression_coef": 5.806527626063491,
+    "classification_loss": "EDLDigammaLoss",
+    "annealing_step": 10,
+    "max_batches": 0
+  },
+  "python": "3.11.17",
+  "miles_guess": "2025.1.0+py311.4"
+}
