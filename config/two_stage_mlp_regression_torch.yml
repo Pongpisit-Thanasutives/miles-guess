@@ -1,0 +1,36 @@
+# TwoStageMLP: PM2.5 station regression. Widths, epochs and learning rate are example
+# starting values; no tuned values for this dataset were supplied. Input dimensions
+# and all scaler statistics are inferred from the training split.
+# val_size is a fraction of the stations remaining after the test split.
+# threshold: null imposes a physical zero lower bound per source.
+model:
+  name: TwoStageMLP
+  kwargs:
+    evidential: true
+    h1: 64
+    h2: 32
+    hout: 16
+    drop_rate: 0.1
+    hh1: 32
+    hh2: 16
+    hdrop_rate: 0.1
+    hsk: 32
+    threshold: null
+data:
+  csv_path: data/pm25_station_daily.csv
+  test_size: 0.2
+  val_size: 0.2
+  seed: 51
+training:
+  epochs: 25
+  learning_rate: 0.001
+  batch_size: 16
+  patience: 5
+  lambda_sim: 0.05
+  evidential_coef: 0.01
+  seed: 88
+  device: cpu
+runtime:
+  cpu_threads: 2
+  prediction_batch_size: 128
+  output_dir: outputs/pm25_two_stage_mlp

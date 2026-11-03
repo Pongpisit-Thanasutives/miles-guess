@@ -8,6 +8,9 @@ import numpy as np
 import os
 from mlguess.torch.checkpoint import load_model_state, load_state_dict
 from mlguess.torch.layers import LinearNormalGamma
+from mlguess.torch._regression_backbones import (
+    CausalEncoder, DualEncoder, ScalarHead, ScalarRegressionModel, SourceModel, _mlp,
+)
 from mlguess.torch.mc_dropout import as_model_input, inference_context, monte_carlo_dropout, _scale_moments, _output_moments
 
 logger = logging.getLogger(__name__)
@@ -356,6 +359,106 @@ class CategoricalDNN(DNN):
     def predict_uncertainty(self, input):
         return self.predict(input, return_uncertainties=True)
 
+
+
+class CNN1D(ScalarRegressionModel):
+    """Three causal convolutions and a scalar prediction at every timestep.
+
+    Accepts [batch, time, in_features]. The default returns (gamma, nu, alpha,
+    beta), each [batch, time]; evidential=False returns a point prediction.
+    """
+    def __init__(self, in_features, h1, h2, hout, drop_rate, *,
+                 evidential=True, kernel_sizes=(7, 5, 3)):
+        super().__init__()
+        self.evidential = evidential
+        self.encoder = CausalEncoder(in_features, (h1, h2, hout), drop_rate, kernel_sizes)
+        self.output_head = ScalarHead(hout, evidential)
+
+    def forward(self, x):
+        return self.output_head(self.encoder(x))
+
+
+class DB(ScalarRegressionModel):
+    """Parallel causal CNN and station-static MLP, fused at each timestep.
+
+    Accepts x_ts [B,T,n_fts] and x_static [B,n_fstatic]. Returns four NIG
+    parameters [B,T], or a single [B,T] tensor with evidential=False.
+    """
+    def __init__(self, n_fts, n_fstatic, hts1, hts2, hts3, hstt1, hstt2,
+                 drop_rate_ts, drop_rate_stt, *, evidential=True, kernel_sizes=(7, 5, 3)):
+        super().__init__()
+        self.evidential = evidential
+        self.encoder = DualEncoder(n_fts, n_fstatic, (hts1, hts2, hts3), (hstt1, hstt2),
+                                   drop_rate_ts, drop_rate_stt, kernel_sizes)
+        self.output_head = ScalarHead(hts3 + hstt2, evidential)
+
+    def forward(self, x_ts, x_static):
+        return self.output_head(self.encoder(x_ts, x_static))
+
+
+class TwoStageMLP(SourceModel):
+    """Shared three-layer MLP with one residual correction head per source.
+
+    Input is [B,n_fkey+n_fcontrol], with the source columns first. The four
+    outputs are (prediction, s_corrected, s_delta, hidden): the NIG parameters
+    or point prediction are [B,1]; corrected sources and deltas are [B,K].
+    See SourceModel for source and threshold units.
+    """
+    sequential = False
+
+    def __init__(self, n_sources, n_fkey, n_fcontrol, h1, h2, hout, drop_rate,
+                 hh1, hh2, hdrop_rate, hsk, threshold=None, source_mean=None,
+                 source_scale=None, target_mean=None, target_scale=None, *, evidential=True):
+        width = n_fkey + n_fcontrol
+        super().__init__(n_sources, width, hout, hh1, hh2, hdrop_rate, hsk, threshold,
+                         source_mean, source_scale, target_mean, target_scale, evidential)
+        self.input_size = width
+        self.shared_mlp = _mlp(width, (h1, h2, hout), drop_rate)
+
+    def forward(self, x):
+        if x.ndim != 2 or x.shape[-1] != self.input_size:
+            raise ValueError(f"Expected [batch, {self.input_size}] input.")
+        return self._source_output(x, self.shared_mlp(x))
+
+
+class TwoStageCNN1D(SourceModel):
+    """Causal CNN with a residual correction head for each leading source channel.
+
+    Accepts [B,T,n_fkey+n_fcontrol]. Returns (prediction, s_corrected, s_delta,
+    hidden); prediction tensors are [B,T] and per-source quantities are [B,T,K].
+    """
+    def __init__(self, n_sources, n_fkey, n_fcontrol, h1, h2, hout, drop_rate,
+                 hh1, hh2, hdrop_rate, hsk, threshold=None, source_mean=None,
+                 source_scale=None, target_mean=None, target_scale=None, *,
+                 evidential=True, kernel_sizes=(7, 5, 3)):
+        width = n_fkey + n_fcontrol
+        super().__init__(n_sources, width, hout, hh1, hh2, hdrop_rate, hsk, threshold,
+                         source_mean, source_scale, target_mean, target_scale, evidential)
+        self.shared_cnn1d = CausalEncoder(width, (h1, h2, hout), drop_rate, kernel_sizes)
+
+    def forward(self, x):
+        return self._source_output(x, self.shared_cnn1d(x))
+
+
+class TwoStageDB(SourceModel):
+    """Causal CNN/static-MLP fusion with a residual correction head per source.
+
+    The first n_sources channels of x_ts [B,T,n_fts] are source contributions.
+    x_static [B,n_fstatic] is shared across the station's timesteps. Returns
+    (prediction, s_corrected, s_delta, hidden) with scalar predictions [B,T]
+    and per-source quantities [B,T,K].
+    """
+    def __init__(self, n_sources, n_fts, n_fstatic, hts1, hts2, hts3, hstt1, hstt2,
+                 drop_rate_ts, drop_rate_stt, hh1, hh2, hout, hdrop_rate, hsk,
+                 threshold=None, source_mean=None, source_scale=None, target_mean=None,
+                 target_scale=None, *, evidential=True, kernel_sizes=(7, 5, 3)):
+        super().__init__(n_sources, n_fts, hout, hh1, hh2, hdrop_rate, hsk, threshold,
+                         source_mean, source_scale, target_mean, target_scale, evidential)
+        self.shared_db = DualEncoder(n_fts, n_fstatic, (hts1, hts2, hts3), (hstt1, hstt2),
+                                     drop_rate_ts, drop_rate_stt, kernel_sizes, fusion_width=hout)
+
+    def forward(self, x_ts, x_static):
+        return self._source_output(x_ts, self.shared_db(x_ts, x_static))
 
 
 if __name__ == "__main__":

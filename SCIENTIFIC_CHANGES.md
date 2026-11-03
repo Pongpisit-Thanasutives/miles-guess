@@ -1,7 +1,16 @@
 # Scientific preservation and verified corrections
 
 Base: ai2es/miles-guess commit `69775bef5d65b50e53692d860092e0295b4e7d23`.
-Local revision: `2025.1.0+py311.8`; this is not an upstream release.
+Local revision: `2025.1.0+py311.9`; this is not an upstream release.
+
+The py311.9 extension adds the five PM2.5 station architectures described in
+[PM25_REGRESSION.md](PM25_REGRESSION.md). The point variants follow the supplied
+reference backbones. The new evidential variants apply the project's scalar
+NIG regression to the total PM2.5 target; for a two-stage model the location
+is constrained to the physical sum of its corrected source contributions.
+The station notebooks, models and splits are separate from the original
+Cabauw and precipitation experiments. The archive includes the historical
+`UPSTREAM.patch` through py311.8 and `PM25_EXTENSION.patch` for this extension.
 
 The py311.8 update aligns notebook explanations and display notation with the
 paper, especially its Eqs. (19) and (24)–(26). Predicted NIG location gamma_n

@@ -1,0 +1,38 @@
+# DB: PM2.5 station regression. Widths, epochs and learning rate are example
+# starting values; no tuned values for this dataset were supplied. Input dimensions
+# and all scaler statistics are inferred from the training split.
+# val_size is a fraction of the stations remaining after the test split.
+# batch_size: null keeps the reference one training update per length group.
+model:
+  name: DB
+  kwargs:
+    evidential: true
+    hts1: 64
+    hts2: 32
+    hts3: 16
+    hstt1: 32
+    hstt2: 16
+    drop_rate_ts: 0.1
+    drop_rate_stt: 0.1
+    kernel_sizes:
+    - 7
+    - 5
+    - 3
+data:
+  csv_path: data/pm25_station_daily.csv
+  test_size: 0.2
+  val_size: 0.2
+  seed: 51
+training:
+  epochs: 25
+  learning_rate: 0.001
+  batch_size: null
+  patience: 5
+  lambda_sim: 0.0
+  evidential_coef: 0.01
+  seed: 88
+  device: cpu
+runtime:
+  cpu_threads: 2
+  prediction_batch_size: 128
+  output_dir: outputs/pm25_db

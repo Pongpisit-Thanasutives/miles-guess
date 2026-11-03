@@ -142,6 +142,13 @@ that affect numerical results. [UNCERTAINTY.md](UNCERTAINTY.md) explains the
 law-of-total-variance formulas, ensemble/MC-dropout examples, variance units,
 and API migration notes.
 
+## PM2.5 station regression (PyTorch)
+
+The [PM2.5 guide](PM25_REGRESSION.md) covers five new architectures: CNN1D,
+DB (dual branch), TwoStageMLP, TwoStageCNN1D and TwoStageDB. Each has its own
+YAML and notebook. Supply a station CSV with the predictors from the reference
+pipeline; the original Cabauw and precipitation examples remain separate.
+
 ## Using miles-guess
 
 The law of total variance for each model prediction target may be computed as

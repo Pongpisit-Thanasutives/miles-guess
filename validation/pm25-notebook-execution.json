@@ -1,0 +1,52 @@
+{
+  "dataset": "Artificial station/day contract fixture for execution checks only; no research metrics or predictions in this report.",
+  "method": "Each shipped notebook validated and executed in a fresh IPython namespace with the shipped YAML and all cells; physical units and CSV identity checks. Reloaded fitted preprocessing and model state from disk for each architecture, predicted unlabeled test inputs and confirmed agreement.",
+  "python": "3.11.17",
+  "results": [
+    {
+      "notebook": "cnn1d_regression_torch.ipynb",
+      "code_cells": 7,
+      "figures": 2,
+      "test_rows": 55,
+      "observed_test_rows": 51,
+      "source_accounting_checked": false,
+      "checkpoint_unlabeled_reload_passed": true
+    },
+    {
+      "notebook": "db_regression_torch.ipynb",
+      "code_cells": 7,
+      "figures": 2,
+      "test_rows": 55,
+      "observed_test_rows": 51,
+      "source_accounting_checked": false,
+      "checkpoint_unlabeled_reload_passed": true
+    },
+    {
+      "notebook": "two_stage_mlp_regression_torch.ipynb",
+      "code_cells": 9,
+      "figures": 3,
+      "test_rows": 55,
+      "observed_test_rows": 51,
+      "source_accounting_checked": true,
+      "checkpoint_unlabeled_reload_passed": true
+    },
+    {
+      "notebook": "two_stage_cnn1d_regression_torch.ipynb",
+      "code_cells": 9,
+      "figures": 3,
+      "test_rows": 55,
+      "observed_test_rows": 51,
+      "source_accounting_checked": true,
+      "checkpoint_unlabeled_reload_passed": true
+    },
+    {
+      "notebook": "two_stage_db_regression_torch.ipynb",
+      "code_cells": 9,
+      "figures": 3,
+      "test_rows": 55,
+      "observed_test_rows": 51,
+      "source_accounting_checked": true,
+      "checkpoint_unlabeled_reload_passed": true
+    }
+  ]
+}

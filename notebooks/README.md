@@ -25,6 +25,11 @@ are preserved; the reference snapshots in `legacy/` are unchanged.
 
 ## Install and run
 
+The five [PM2.5 notebooks](../PM25_REGRESSION.md) each have a separate model
+configuration and expect the station-level CSV specified in that guide. They
+are extensions for the supplied PM2.5 reference models and do not change the
+authors' Cabauw/precipitation examples above.
+
 Follow the Python 3.11 / PyTorch CPU Conda setup in the main README. The weather
 notebooks require the `data` extra; Keras notebooks also require `keras`. The
 original balanced Keras classifier needs `imbalanced-learn`:

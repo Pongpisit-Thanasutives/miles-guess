@@ -1,0 +1,3309 @@
+diff --git a/MANIFEST.in b/MANIFEST.in
+index b88837f..86a10f5 100644
+--- a/MANIFEST.in
++++ b/MANIFEST.in
+@@ -1,4 +1,6 @@
+ include LICENSE README.md SCIENTIFIC_CHANGES.md VALIDATION.md UNCERTAINTY.md AUTHORS_NOTEBOOK_UPDATES.md
++include PM25_REGRESSION.md
++include notebooks/*_regression_torch.ipynb
+ include environment*.yml
+ recursive-include mlguess *.py VERSION
+ recursive-include applications *.py
+diff --git a/PM25_REGRESSION.md b/PM25_REGRESSION.md
+new file mode 100644
+index 0000000..d96f615
+--- /dev/null
++++ b/PM25_REGRESSION.md
+@@ -0,0 +1,58 @@
++# PM2.5 regression with PyTorch
++
++Use these notebooks with a daily station CSV containing the CMAQ, AOD, weather and land-use fields in the supplied reference code. The station observations and the original imputation helper were not supplied. The Cabauw friction-velocity data and the precipitation-type examples have different predictors and targets.
++
++| Notebook | Inputs and prediction | Configuration |
++| --- | --- | --- |
++| [CNN1D](notebooks/cnn1d_regression_torch.ipynb) | Causal temporal convolutions; one PM2.5 estimate per day | [YAML](config/cnn1d_regression_torch.yml) |
++| [DB](notebooks/db_regression_torch.ipynb) | A temporal CNN plus an MLP for static station descriptors; one estimate per day | [YAML](config/db_regression_torch.yml) |
++| [TwoStageMLP](notebooks/two_stage_mlp_regression_torch.ipynb) | A tabular MLP; one corrected concentration per source and their total | [YAML](config/two_stage_mlp_regression_torch.yml) |
++| [TwoStageCNN1D](notebooks/two_stage_cnn1d_regression_torch.ipynb) | Causal temporal convolutions followed by separate source correction heads | [YAML](config/two_stage_cnn1d_regression_torch.yml) |
++| [TwoStageDB](notebooks/two_stage_db_regression_torch.ipynb) | Temporal and static branches followed by separate source correction heads | [YAML](config/two_stage_db_regression_torch.yml) |
++
++## Run a notebook
++
++1. In the Python 3.11 environment with CPU PyTorch installed, unpack the project, enter its root and run `python -m pip install -e ".[torch,notebooks]"`.
++2. Put the station CSV at `data/pm25_station_daily.csv`, set `data.csv_path` in the chosen YAML, or set the environment variable `MILES_GUESS_PM25_CSV` to an absolute path.
++3. Run `python -m jupyter lab`, open the matching notebook and run all cells. The example widths, learning rates and epoch limits are starting values; the references do not specify tuned values for your data. Each run uses training stations to fit scalers, validation stations to select the epoch, and held-out test stations to report results.
++
++Each input row identifies a station (`stcode`), calendar day (`date`) and region (`region5`). The target is `pm25` in µg/m³. The models use:
++
++- Three additive CMAQ source estimates, in order: `cmaq_pm25_bb`, `cmaq_pm25_anthro`, `cmaq_pm25_othr`, each in µg/m³.
++- Daily environmental predictors: `aod`, `wrf_pbl`, `wrf_temp`, `wrf_wspd`, `wrf_rh`. AOD is not an additive source.
++- Station descriptors: `population`, `elevation`, `builtup`, `rice`, `forest`, `minor_road_length`, `major_road_length`. For DB models these must be constant within a station. Latitude and longitude, when present, remain metadata.
++
++The reference split holds out entire stations within regions; it assesses prediction at new stations. Sequence models process each station in date order. A missing target retains its day in the input sequence and is masked in the loss and metrics. A missing calendar day starts a new sequence, so a convolution never treats nonconsecutive days as neighbors. Equal-length sequences batch without padding.
++
++Predictors must be finite; if you use an external predictor imputer, fit it on training data only. To use the reference's separate training-label imputer, pass it as `train_imputer` to `load_pm25_data`. If it creates a column such as `pm25_filled`, pass `training_target_col="pm25_filled"` to `prepare_pm25`; validation and test scores still use the original `pm25` observations. By default no labels are imputed.
++
++## Interpret the outputs
++
++All YAMLs enable evidential regression by default. The Normal–Inverse-Gamma (NIG) head predicts uncertainty for **total PM2.5**: the predictive mean is the paper's γ; aleatoric variance is β/(α−1) and epistemic variance is β/[ν(α−1)]. The notebook computes the predictive interval from the corresponding Student-t distribution. The two-stage models constrain γ to the sum of corrected sources in physical units; no separate per-source uncertainty distributions are assumed.
++
++The notebooks write `test_predictions.csv`, `test_metrics.csv`, a model checkpoint, fitted preprocessing and plots to the directory configured in `runtime.output_dir`. The test predictions include rows with missing labels; metrics use only measured targets. The time plot shows one held-out station, while the table covers all held-out stations.
++
++Each two-stage record includes `pred`, the vector `s_corrected`, one numeric `corrected_<source>` column per source, and `delta_<source>` (corrected minus original concentration, after clipping). The vector is a JSON array in the CSV. Contributions and totals are in µg/m³; variance columns are in (µg/m³)². The notebook checks the source sum on every row. Agreement with the measured total alone does not establish accuracy of individual source estimates.
++
++For point regression as in the attached models, set `model.kwargs.evidential: false`. The trainer then uses mean squared error; two-stage models retain the configured cosine penalty on the proposed source corrections. Set `training.device` for your installed PyTorch backend; the supplied defaults run on CPU.
++
++## Predict for a new station
++
++Reuse the fitted preprocessing and weights from the **same** run. From the project root, this example loads the TwoStageDB run and accepts an unlabeled CSV. Supply past daily predictor rows for each station if their context should contribute to later estimates.
++
++```python
++from pathlib import Path
++import pandas as pd
++import yaml
++from mlguess.torch.nn_data import PM25Preprocessor
++from mlguess.torch.nn_training import build_model, predict_frame
++
++cfg = yaml.safe_load(Path("config/two_stage_db_regression_torch.yml").read_text())
++run = Path(cfg["runtime"]["output_dir"])
++processor = PM25Preprocessor.load(run / "preprocessor.json")
++model = build_model(cfg["model"]["name"], cfg["model"]["kwargs"], processor)
++model.load_weights(run / "best_state.pt")
++new_rows = pd.read_csv("new_station_days.csv", dtype={"stcode": str})
++predictions = predict_frame(model, processor.transform(new_rows), processor)
++print(predictions[["stcode", "date", "pred", "s_corrected"]].head())
++```
+diff --git a/README.md b/README.md
+index 844d51b..ad06960 100644
+--- a/README.md
++++ b/README.md
+@@ -142,6 +142,13 @@ that affect numerical results. [UNCERTAINTY.md](UNCERTAINTY.md) explains the
+ law-of-total-variance formulas, ensemble/MC-dropout examples, variance units,
+ and API migration notes.
+ 
++## PM2.5 station regression (PyTorch)
++
++The [PM2.5 guide](PM25_REGRESSION.md) covers five new architectures: CNN1D,
++DB (dual branch), TwoStageMLP, TwoStageCNN1D and TwoStageDB. Each has its own
++YAML and notebook. Supply a station CSV with the predictors from the reference
++pipeline; the original Cabauw and precipitation examples remain separate.
++
+ ## Using miles-guess
+ 
+ The law of total variance for each model prediction target may be computed as
+diff --git a/SCIENTIFIC_CHANGES.md b/SCIENTIFIC_CHANGES.md
+index 443b121..d5132ef 100644
+--- a/SCIENTIFIC_CHANGES.md
++++ b/SCIENTIFIC_CHANGES.md
+@@ -1,7 +1,16 @@
+ # Scientific preservation and verified corrections
+ 
+ Base: ai2es/miles-guess commit `69775bef5d65b50e53692d860092e0295b4e7d23`.
+-Local revision: `2025.1.0+py311.8`; this is not an upstream release.
++Local revision: `2025.1.0+py311.9`; this is not an upstream release.
++
++The py311.9 extension adds the five PM2.5 station architectures described in
++[PM25_REGRESSION.md](PM25_REGRESSION.md). The point variants follow the supplied
++reference backbones. The new evidential variants apply the project's scalar
++NIG regression to the total PM2.5 target; for a two-stage model the location
++is constrained to the physical sum of its corrected source contributions.
++The station notebooks, models and splits are separate from the original
++Cabauw and precipitation experiments. The archive includes the historical
++`UPSTREAM.patch` through py311.8 and `PM25_EXTENSION.patch` for this extension.
+ 
+ The py311.8 update aligns notebook explanations and display notation with the
+ paper, especially its Eqs. (19) and (24)–(26). Predicted NIG location gamma_n
+diff --git a/VALIDATION.md b/VALIDATION.md
+index badb981..4ff32f3 100644
+--- a/VALIDATION.md
++++ b/VALIDATION.md
+@@ -1,12 +1,36 @@
+ # Validation report
+ 
+-Date: **2026-10-18**. Local revision: **2025.1.0+py311.8**.
++Date: **2026-11-03**. Local revision: **2025.1.0+py311.9**.
+ Upstream base: `69775bef5d65b50e53692d860092e0295b4e7d23`.
+ 
+-This revision restores the authors' examples and extends their held-out
+-assessment. It does not replace their datasets or architectures with generated
+-examples. `AUTHORS_NOTEBOOK_UPDATES.md` documents preservation and the specific
+-compatibility/calculation errors corrected.
++## PM2.5 station regression extension (py311.9)
++
++The complete test suite on Linux, Python 3.11.17, CPU PyTorch 2.14.1 and NumPy
++2.4.6 passed: **565 passed, 4 skipped**. Three skips require GPUs; the fourth
++requires a distributed socket forbidden in this environment. Native Windows,
++macOS, and GPU execution were not exercised here.
++
++All five architectures were trained in both point and evidential modes.
++Comparing point-mode models with the supplied reference implementations at
++matched nonconstant weights gave a maximum absolute output difference of
++4.18 × 10⁻⁷ or less; input gradients agreed within tolerance. Checks covered
++causal ordering, per-station grouping, missing labels and dates, source sums,
++affine variance conversion, checkpoint restoration and unlabeled inference.
++
++All **41 code cells in the five new notebooks** executed in order and produced
++**13 figures** using a clearly identified 240-row station-schema test fixture.
++Each run retained 55 held-out prediction rows (51 with measured fixture targets),
++and reloading the weights and preprocessor reproduced the predictions from
++unlabeled inputs. The notebooks were validated using nbformat and executed in
++fresh IPython sessions: this host does not permit a Jupyter kernel to bind a
++local socket. The user's PM2.5 station CSV was not supplied; fixture scores and
++figures are not distributed as scientific results.
++
++The new wheel was installed separately and all five architectures imported and
++produced predictions from the wheel. See `validation/pm25-*` for the test
++results, notebook execution record, reference comparisons and preservation
++check. The earlier authors' notebooks, datasets and YAML configurations remain
++unchanged; `AUTHORS_NOTEBOOK_UPDATES.md` documents their earlier revisions.
+ 
+ ## Paper-notation update (py311.8)
+ 
+diff --git a/config/cnn1d_regression_torch.yml b/config/cnn1d_regression_torch.yml
+new file mode 100644
+index 0000000..c93f66f
+--- /dev/null
++++ b/config/cnn1d_regression_torch.yml
+@@ -0,0 +1,35 @@
++# CNN1D: PM2.5 station regression. Widths, epochs and learning rate are example
++# starting values; no tuned values for this dataset were supplied. Input dimensions
++# and all scaler statistics are inferred from the training split.
++# val_size is a fraction of the stations remaining after the test split.
++# batch_size: null keeps the reference one training update per length group.
++model:
++  name: CNN1D
++  kwargs:
++    evidential: true
++    h1: 64
++    h2: 32
++    hout: 16
++    drop_rate: 0.1
++    kernel_sizes:
++    - 7
++    - 5
++    - 3
++data:
++  csv_path: data/pm25_station_daily.csv
++  test_size: 0.2
++  val_size: 0.2
++  seed: 51
++training:
++  epochs: 25
++  learning_rate: 0.001
++  batch_size: null
++  patience: 5
++  lambda_sim: 0.0
++  evidential_coef: 0.01
++  seed: 88
++  device: cpu
++runtime:
++  cpu_threads: 2
++  prediction_batch_size: 128
++  output_dir: outputs/pm25_cnn1d
+diff --git a/config/db_regression_torch.yml b/config/db_regression_torch.yml
+new file mode 100644
+index 0000000..dac4b9a
+--- /dev/null
++++ b/config/db_regression_torch.yml
+@@ -0,0 +1,38 @@
++# DB: PM2.5 station regression. Widths, epochs and learning rate are example
++# starting values; no tuned values for this dataset were supplied. Input dimensions
++# and all scaler statistics are inferred from the training split.
++# val_size is a fraction of the stations remaining after the test split.
++# batch_size: null keeps the reference one training update per length group.
++model:
++  name: DB
++  kwargs:
++    evidential: true
++    hts1: 64
++    hts2: 32
++    hts3: 16
++    hstt1: 32
++    hstt2: 16
++    drop_rate_ts: 0.1
++    drop_rate_stt: 0.1
++    kernel_sizes:
++    - 7
++    - 5
++    - 3
++data:
++  csv_path: data/pm25_station_daily.csv
++  test_size: 0.2
++  val_size: 0.2
++  seed: 51
++training:
++  epochs: 25
++  learning_rate: 0.001
++  batch_size: null
++  patience: 5
++  lambda_sim: 0.0
++  evidential_coef: 0.01
++  seed: 88
++  device: cpu
++runtime:
++  cpu_threads: 2
++  prediction_batch_size: 128
++  output_dir: outputs/pm25_db
+diff --git a/config/two_stage_cnn1d_regression_torch.yml b/config/two_stage_cnn1d_regression_torch.yml
+new file mode 100644
+index 0000000..d803836
+--- /dev/null
++++ b/config/two_stage_cnn1d_regression_torch.yml
+@@ -0,0 +1,41 @@
++# TwoStageCNN1D: PM2.5 station regression. Widths, epochs and learning rate are example
++# starting values; no tuned values for this dataset were supplied. Input dimensions
++# and all scaler statistics are inferred from the training split.
++# val_size is a fraction of the stations remaining after the test split.
++# batch_size: null keeps the reference one training update per length group.
++# threshold: null imposes a physical zero lower bound per source.
++model:
++  name: TwoStageCNN1D
++  kwargs:
++    evidential: true
++    h1: 64
++    h2: 32
++    hout: 16
++    drop_rate: 0.1
++    hh1: 32
++    hh2: 16
++    hdrop_rate: 0.1
++    hsk: 32
++    threshold: null
++    kernel_sizes:
++    - 7
++    - 5
++    - 3
++data:
++  csv_path: data/pm25_station_daily.csv
++  test_size: 0.2
++  val_size: 0.2
++  seed: 51
++training:
++  epochs: 25
++  learning_rate: 0.001
++  batch_size: null
++  patience: 5
++  lambda_sim: 0.05
++  evidential_coef: 0.01
++  seed: 88
++  device: cpu
++runtime:
++  cpu_threads: 2
++  prediction_batch_size: 128
++  output_dir: outputs/pm25_two_stage_cnn1d
+diff --git a/config/two_stage_db_regression_torch.yml b/config/two_stage_db_regression_torch.yml
+new file mode 100644
+index 0000000..5f0ad4b
+--- /dev/null
++++ b/config/two_stage_db_regression_torch.yml
+@@ -0,0 +1,45 @@
++# TwoStageDB: PM2.5 station regression. Widths, epochs and learning rate are example
++# starting values; no tuned values for this dataset were supplied. Input dimensions
++# and all scaler statistics are inferred from the training split.
++# val_size is a fraction of the stations remaining after the test split.
++# batch_size: null keeps the reference one training update per length group.
++# threshold: null imposes a physical zero lower bound per source.
++model:
++  name: TwoStageDB
++  kwargs:
++    evidential: true
++    hts1: 64
++    hts2: 32
++    hts3: 16
++    hstt1: 32
++    hstt2: 16
++    drop_rate_ts: 0.1
++    drop_rate_stt: 0.1
++    hh1: 32
++    hh2: 16
++    hdrop_rate: 0.1
++    hsk: 32
++    threshold: null
++    hout: 16
++    kernel_sizes:
++    - 7
++    - 5
++    - 3
++data:
++  csv_path: data/pm25_station_daily.csv
++  test_size: 0.2
++  val_size: 0.2
++  seed: 51
++training:
++  epochs: 25
++  learning_rate: 0.001
++  batch_size: null
++  patience: 5
++  lambda_sim: 0.05
++  evidential_coef: 0.01
++  seed: 88
++  device: cpu
++runtime:
++  cpu_threads: 2
++  prediction_batch_size: 128
++  output_dir: outputs/pm25_two_stage_db
+diff --git a/config/two_stage_mlp_regression_torch.yml b/config/two_stage_mlp_regression_torch.yml
+new file mode 100644
+index 0000000..6fc1ca7
+--- /dev/null
++++ b/config/two_stage_mlp_regression_torch.yml
+@@ -0,0 +1,36 @@
++# TwoStageMLP: PM2.5 station regression. Widths, epochs and learning rate are example
++# starting values; no tuned values for this dataset were supplied. Input dimensions
++# and all scaler statistics are inferred from the training split.
++# val_size is a fraction of the stations remaining after the test split.
++# threshold: null imposes a physical zero lower bound per source.
++model:
++  name: TwoStageMLP
++  kwargs:
++    evidential: true
++    h1: 64
++    h2: 32
++    hout: 16
++    drop_rate: 0.1
++    hh1: 32
++    hh2: 16
++    hdrop_rate: 0.1
++    hsk: 32
++    threshold: null
++data:
++  csv_path: data/pm25_station_daily.csv
++  test_size: 0.2
++  val_size: 0.2
++  seed: 51
++training:
++  epochs: 25
++  learning_rate: 0.001
++  batch_size: 16
++  patience: 5
++  lambda_sim: 0.05
++  evidential_coef: 0.01
++  seed: 88
++  device: cpu
++runtime:
++  cpu_threads: 2
++  prediction_batch_size: 128
++  output_dir: outputs/pm25_two_stage_mlp
+diff --git a/mlguess/VERSION b/mlguess/VERSION
+index d95f7e1..5621e46 100644
+--- a/mlguess/VERSION
++++ b/mlguess/VERSION
+@@ -1 +1 @@
+-2025.1.0+py311.8
++2025.1.0+py311.9
+diff --git a/mlguess/tests/test_pm25_sequence_data.py b/mlguess/tests/test_pm25_sequence_data.py
+new file mode 100644
+index 0000000..320aec6
+--- /dev/null
++++ b/mlguess/tests/test_pm25_sequence_data.py
+@@ -0,0 +1,147 @@
++"""Station-level splits, calendar alignment, train-only scaling, and unlabeled inference."""
++import numpy as np
++import pandas as pd
++import pytest
++
++pytest.importorskip("torch")
++from mlguess.torch.nn_data import (
++    CMAQ_FEATURES, FEATURES, STATIC_FEATURES, TS_FEATURES, inverse_sources,
++    load_pm25_data, prepare_3d_input, prepare_pm25, source_sum_scaler_params,
++    split_pm25_stations,
++)
++
++
++def observations(station, days=(1, 2, 3), offset=0.0):
++    dates = pd.to_datetime([f"2020-01-{i:02d}" for i in days])
++    rows = []
++    for t, date in enumerate(dates):
++        row = {"stcode": station, "region5": "north", "date": date, "pm25": offset + 2 * t + 1.0}
++        row.update({col: offset + 0.5 * i + t for i, col in enumerate(TS_FEATURES)})
++        row.update({col: offset + 0.8 * i for i, col in enumerate(STATIC_FEATURES)})
++        rows.append(row)
++    return pd.DataFrame(rows)
++
++
++def test_sequence_keys_survive_shuffling_missing_labels_and_actual_gaps():
++    a = observations("a", [1, 2, 3, 5, 6])
++    a.loc[1, "pm25"] = np.nan
++    df = pd.concat([a, observations("b", [1, 2], 30)], ignore_index=True).sample(frac=1, random_state=6)
++    groups = prepare_3d_input(df, TS_FEATURES, STATIC_FEATURES)
++    assert set(groups) == {2, 3}
++    assert groups[2]["X_ts"].shape == (2, 2, len(TS_FEATURES))
++    assert groups[3]["X_static"].shape == (1, len(STATIC_FEATURES))
++    assert np.isnan(groups[3]["y"][0, 1])
++    positions = []
++    for T, group in groups.items():
++        for i, station in enumerate(group["stations"]):
++            raw = df.iloc[group["row_positions"][i]]
++            assert raw.stcode.eq(station).all()
++            assert (raw.date.diff().dropna() == pd.Timedelta(days=1)).all()
++            np.testing.assert_equal(raw.date.to_numpy(), group["dates"][i])
++            np.testing.assert_equal(raw[TS_FEATURES].to_numpy(), group["X_ts"][i])
++            positions.extend(group["row_positions"][i])
++    assert sorted(positions) == list(range(len(df)))
++
++
++@pytest.mark.parametrize("model_name", ["CNN1D", "DB", "TwoStageMLP", "TwoStageCNN1D", "TwoStageDB"])
++def test_train_scalers_and_unlabeled_transform(model_name):
++    tr = observations("train")
++    va = observations("validation", offset=5000)
++    te = observations("test", offset=10000).drop(columns=["pm25"])
++    tr.loc[1, "pm25"] = np.nan
++    bundle = prepare_pm25(tr, va, te, model_name)
++    np.testing.assert_allclose(bundle.feature_scaler.mean_, tr[list(bundle.ts_cols)].mean())
++    assert bundle.target_scaler.mean_[0] == tr["pm25"].mean()
++    n_db = model_name.endswith("DB")
++    assert (bundle.static_scaler is not None) == n_db
++    assert list(bundle.ts_cols) == (TS_FEATURES if n_db else FEATURES)
++    np.testing.assert_array_equal(bundle.source_names, CMAQ_FEATURES)
++    inp = next(iter(bundle.train.tensors.values()))
++    assert len(inp) == (3 if n_db else 2)
++    assert inp[0].ndim == (2 if model_name == "TwoStageMLP" else 3)
++    assert np.isnan(inp[-1].numpy()).sum() == 1
++    assert bundle.test.frame["pm25"].isna().all()
++    unlabelled = bundle.transform(te)
++    assert next(iter(unlabelled.tensors.values()))[-1].isnan().all()
++    assert np.allclose(source_sum_scaler_params(bundle.feature_scaler, bundle.target_scaler)["source_mean"],
++                       tr[CMAQ_FEATURES].mean())
++    raw_sources = inverse_sources(inp[0].numpy()[..., :3], bundle.feature_scaler, len(bundle.ts_cols))
++    np.testing.assert_allclose(raw_sources.reshape(-1, 3), tr[CMAQ_FEATURES].values, atol=1e-6)
++
++
++def test_source_order_static_invariance_and_station_overlap_are_checked():
++    tr, va, te = [observations(st) for st in "abc"]
++    with pytest.raises(ValueError, match="first input features"):
++        prepare_pm25(tr, va, te, "TwoStageDB", ts_cols=TS_FEATURES[::-1])
++    tr.loc[0, "elevation"] = -22
++    with pytest.raises(ValueError, match="Static features vary"):
++        prepare_pm25(tr, va, te, "DB")
++    with pytest.raises(ValueError, match="station-disjoint"):
++        prepare_pm25(tr, tr.copy(), te, "CNN1D")
++    with pytest.raises(ValueError, match="unique"):
++        prepare_3d_input(pd.concat([te, te.iloc[:1]]), TS_FEATURES)
++
++
++def test_station_stratification_and_train_only_callback(tmp_path):
++    frames = [observations(f"S{i:02d}") for i in range(14)]
++    for i, frame in enumerate(frames):
++        frame["region5"] = "singleton" if i == 0 else "north" if i < 7 else "south"
++    data = pd.concat(frames, ignore_index=True)
++    data.loc[data.date.dt.day == 2, "pm25"] = np.nan
++    path = tmp_path / "pm25.csv"
++    data.to_csv(path, index=False)
++    seen = set()
++
++    def fill_training_only(frame):
++        seen.update(frame.stcode.unique())
++        frame["pm25_filled"] = frame.pm25.fillna(0.0)
++        return frame
++
++    tr, va, te = load_pm25_data(path, split_val=True, train_imputer=fill_training_only)
++    assert seen == set(tr.stcode)
++    assert "S00" in seen
++    assert set(va.stcode).isdisjoint(seen | set(te.stcode))
++    assert seen.isdisjoint(te.stcode)
++    assert len(tr) + len(va) + len(te) == len(data)
++    assert "pm25_filled" not in va and "pm25_filled" not in te
++    result = prepare_pm25(tr, va, te, "CNN1D", training_target_col="pm25_filled")
++    assert not next(iter(result.train.tensors.values()))[-1].isnan().any()
++    assert next(iter(result.validation.tensors.values()))[-1].isnan().any()
++    one_region_per_station = pd.concat([data, data.iloc[:1].assign(region5="different")], ignore_index=True)
++    with pytest.raises(ValueError, match="exactly one region"):
++        split_pm25_stations(one_region_per_station)
++
++
++def test_checkpoint_companion_restores_unlabeled_predictions_and_sources(tmp_path):
++    import json
++    import torch
++    from mlguess.torch.nn_data import PM25Preprocessor
++    from mlguess.torch.nn_training import build_model, predict_frame
++
++    train, valid, test = [observations(name, offset=i) for i, name in enumerate(("train-A", "val-B", "test-C"))]
++    prepared = prepare_pm25(train, valid, test, "TwoStageDB")
++    unseen = observations("unseen", (1, 2, 5), offset=7).drop(columns="pm25")
++    model_kwargs = dict(hts1=3, hts2=3, hts3=3, hstt1=3, hstt2=3, drop_rate_ts=0,
++                        drop_rate_stt=0, hh1=3, hh2=3, hout=3, hdrop_rate=0, hsk=2)
++    model = build_model("TwoStageDB", model_kwargs, prepared)
++    split = prepared.transform(unseen)
++    expected = predict_frame(model, split, prepared)
++    path = tmp_path / "preprocessor.json"
++    prepared.save(path)
++    torch.save(model.state_dict(), tmp_path / "best_state.pt")
++    metadata = json.loads(path.read_text())
++    assert set(metadata) == {"format", "schema", "scalers"}
++    assert not any(name in path.read_text() for name in ("train-A", "val-B", "test-C"))
++    restored = PM25Preprocessor.load(path)
++    reload_split = restored.transform(unseen)
++    assert set(reload_split.tensors) == {1, 2}
++    assert not hasattr(restored, "train")
++    for key, batch in split.tensors.items():
++        for actual, original in zip(reload_split.tensors[key], batch):
++            torch.testing.assert_close(actual, original, equal_nan=True, rtol=0, atol=0)
++    reloaded_model = build_model("TwoStageDB", model_kwargs, restored)
++    reloaded_model.load_state_dict(torch.load(tmp_path / "best_state.pt", weights_only=True))
++    actual = predict_frame(reloaded_model, reload_split, restored)
++    pd.testing.assert_frame_equal(actual, expected)
++    assert actual.pm25.isna().all()
++    np.testing.assert_allclose(actual.pred, np.stack(actual.s_corrected).sum(axis=1), atol=1e-5)
+diff --git a/mlguess/tests/test_source_regression_models.py b/mlguess/tests/test_source_regression_models.py
+new file mode 100644
+index 0000000..49d16c1
+--- /dev/null
++++ b/mlguess/tests/test_source_regression_models.py
+@@ -0,0 +1,94 @@
++"""Properties of the causal encoders, source conservation and scalar NIG heads."""
++import pytest
++
++torch = pytest.importorskip("torch")
++from sklearn.preprocessing import StandardScaler
++from mlguess.torch.models import CNN1D, DB, TwoStageMLP, TwoStageCNN1D, TwoStageDB
++
++
++def make_model(cls, **kwargs):
++    widths = dict(h1=6, h2=5, hout=4, drop_rate=0.1)
++    dual = dict(n_fts=3, n_fstatic=2, hts1=6, hts2=5, hts3=4, hstt1=3, hstt2=2,
++                drop_rate_ts=0.1, drop_rate_stt=0.2)
++    heads = dict(n_sources=2, hh1=5, hh2=4, hdrop_rate=0.1, hsk=3)
++    if cls is CNN1D:
++        return cls(in_features=3, **widths, **kwargs)
++    if cls is DB:
++        return cls(**dual, **kwargs)
++    if cls is TwoStageDB:
++        return cls(hout=4, **dual, **heads, **kwargs)
++    return cls(n_fkey=2, n_fcontrol=1, **widths, **heads, **kwargs)
++
++
++SCALING = dict(source_mean=[1., 7.], source_scale=[3., 2.],
++               target_mean=11., target_scale=4.)
++
++
++@pytest.mark.parametrize("cls", [CNN1D, DB, TwoStageCNN1D, TwoStageDB])
++def test_changes_to_future_observations_do_not_affect_past_predictions(cls):
++    torch.manual_seed(17)
++    model = make_model(cls).eval()
++    x = torch.randn(2, 17, 3)
++    changed = x.clone()
++    changed[:, 9:] += 100 * torch.randn_like(changed[:, 9:])
++    static = (torch.randn(2, 2),) if cls in (DB, TwoStageDB) else ()
++    out1, out2 = model(x, *static), model(changed, *static)
++    if model.two_stage:
++        for first, second in zip(out1[1:], out2[1:]):
++            torch.testing.assert_close(first[:, :9], second[:, :9])
++        out1, out2 = out1[0], out2[0]
++    for first, second in zip(out1, out2):
++        assert first.shape == (2, 17)
++        torch.testing.assert_close(first[:, :9], second[:, :9])
++
++
++@pytest.mark.parametrize("cls", [TwoStageMLP, TwoStageCNN1D, TwoStageDB])
++@pytest.mark.parametrize("evidential", [False, True])
++def test_source_location_is_clamped_sum_in_physical_units(cls, evidential):
++    model = make_model(cls, evidential=evidential, **SCALING).eval()
++    # With zero residuals these channels imply raw contributions -5 and 9.
++    # Clamping at raw zero gives predicted total 9; its target coordinate is -0.5.
++    for head in model.heads:
++        for p in head.parameters():
++            torch.nn.init.zeros_(p)
++    x = torch.tensor([[-2., 1., -1.], [-2., 1., 1.]])
++    if model.sequential:
++        x = x[:, None, :].repeat(1, 3, 1)
++    static = (torch.zeros(2, 2),) if cls is TwoStageDB else ()
++    prediction, corrected, proposed, hidden = model(x, *static)
++    location = prediction[0] if evidential else prediction
++    assert location.shape == ((2, 3) if model.sequential else (2, 1))
++    torch.testing.assert_close(location, torch.full_like(location, -0.5))
++    raw = corrected * model.source_scale + model.source_mean
++    torch.testing.assert_close(raw[..., 0], torch.zeros_like(raw[..., 0]))
++    torch.testing.assert_close(raw[..., 1], torch.full_like(raw[..., 1], 9.))
++    torch.testing.assert_close(proposed, torch.zeros_like(proposed))
++    assert hidden.shape[:-1] == raw.shape[:-1]
++
++
++@pytest.mark.parametrize("cls", [CNN1D, DB, TwoStageMLP, TwoStageCNN1D, TwoStageDB])
++def test_predict_reports_target_scaled_nig_moments(cls):
++    model = make_model(cls)
++    x = torch.ones(2, 4, 3) if model.sequential else torch.ones(2, 3)
++    static = (torch.ones(2, 2),) if cls in (DB, TwoStageDB) else ()
++    scaler = StandardScaler().fit([[3.], [7.]])
++    out = model.predict(x, *static, return_uncertainties=False)
++    params = out[0] if model.two_stage else out
++    gamma, nu, alpha, beta = params
++    out = model.predict(x, *static, y_scaler=scaler)
++    mean, ale, epi, total = out[0] if model.two_stage else out
++    assert model.training
++    torch.testing.assert_close(mean, 5 + 2 * gamma)
++    torch.testing.assert_close(ale, 4 * beta / (alpha - 1))
++    torch.testing.assert_close(epi, ale / nu)
++    torch.testing.assert_close(total, ale + epi)
++    assert not mean.requires_grad
++
++
++def test_partial_or_invalid_source_scale_rejected():
++    with pytest.raises(ValueError, match="together"):
++        make_model(TwoStageDB, source_mean=[1., 2.])
++    with pytest.raises(ValueError, match="positive"):
++        make_model(TwoStageCNN1D, **{**SCALING, "source_scale": [1., 0.]})
++    with pytest.raises(ValueError, match="threshold"):
++        make_model(TwoStageMLP, threshold=[0., 0., 0.])
+diff --git a/mlguess/tests/test_station_training.py b/mlguess/tests/test_station_training.py
+new file mode 100644
+index 0000000..5f85ef2
+--- /dev/null
++++ b/mlguess/tests/test_station_training.py
+@@ -0,0 +1,98 @@
++"""Real model updates, held-out source accounting, and unlabeled inference."""
++import numpy as np
++import pandas as pd
++import pytest
++
++torch = pytest.importorskip("torch")
++from mlguess.torch.models import seed_everything
++from mlguess.torch.nn_data import prepare_pm25
++from mlguess.torch.nn_training import build_model, fit_model, predict_frame, regression_metrics
++
++
++@pytest.fixture(scope="module", autouse=True)
++def small_cpu_models():
++    threads = torch.get_num_threads()
++    torch.set_num_threads(1)
++    yield
++    torch.set_num_threads(threads)
++
++
++def station_split(stations):
++    rows = []
++    for i, station in enumerate(stations):
++        for day in range(3 + i):
++            a, b = 8 + i + 2 * day, 3 + i - 0.3 * day
++            rows.append(dict(station=station, time=pd.Timestamp("2024-01-01") + pd.Timedelta(days=day),
++                             s1=a, s2=b, wind=day % 2, height=35.0 + i, y=a + b - 1.0))
++    frame = pd.DataFrame(rows).iloc[::-1].copy()
++    frame.iloc[1, frame.columns.get_loc("y")] = np.nan
++    return frame
++
++
++def make_case(name, evidential):
++    seed_everything(321)
++    p = prepare_pm25(*(station_split(pair) for pair in (("A", "B"), ("C", "D"), ("E", "F"))),
++                     model_name=name, source_names=("s1", "s2"), ts_cols=("s1", "s2", "wind"),
++                     static_cols=("height",), target_col="y", group_col="station", date_col="time")
++    if name.endswith("DB"):
++        kwargs = dict(hts1=4, hts2=4, hts3=4, hstt1=4, hstt2=4, drop_rate_ts=0.1, drop_rate_stt=0.1)
++        if name.startswith("TwoStage"):
++            kwargs["hout"] = 4
++    else:
++        kwargs = dict(h1=4, h2=4, hout=4, drop_rate=0.1)
++    if name.startswith("TwoStage"):
++        kwargs.update(hh1=4, hh2=3, hdrop_rate=0.1, hsk=2)
++    return p, build_model(name, dict(**kwargs, evidential=evidential), p)
++
++
++@pytest.mark.parametrize("name", ["CNN1D", "DB", "TwoStageMLP", "TwoStageCNN1D", "TwoStageDB"])
++@pytest.mark.parametrize("evidential", [True, False])
++def test_fit_with_missing_labels_and_collect_aligned_predictions(name, evidential, tmp_path):
++    p, model = make_case(name, evidential)
++    checkpoint = tmp_path / "model.pt"
++    before = [x.detach().clone() for x in model.parameters()]
++    history = fit_model(model, p.train, p.validation, epochs=2, batch_size=1,
++                        patience=1, checkpoint_path=checkpoint)
++    assert np.isfinite(history.train_loss + history.val_loss).all()
++    assert history.best_epoch == np.argmin(history.val_loss) + 1
++    assert any(not torch.equal(b, a) for b, a in zip(before, model.parameters()))
++    pred = predict_frame(model, p.test, p, batch_size=1)
++    assert np.all(pred[["station", "time"]].values == p.test.frame[["station", "time"]].values)
++    assert regression_metrics(pred, "y")["n_observed"] == pred.y.notna().sum()
++    # Removing test labels does not remove rows, influence mean predictions, or
++    # change the source vectors. Loading the selected portable state reproduces the fit.
++    _, restored = make_case(name, evidential)
++    restored.load_state_dict(torch.load(checkpoint, map_location="cpu", weights_only=True))
++    unknown = p.transform(p.test.frame.drop(columns="y"))
++    actual = predict_frame(restored, unknown, p)
++    np.testing.assert_allclose(actual.pred, pred.pred, rtol=2e-6, atol=2e-6)
++    if model.two_stage:
++        sources = pred[["corrected_s1", "corrected_s2"]].to_numpy()
++        np.testing.assert_allclose(sources.sum(axis=1), pred.pred, atol=2e-5)
++        np.testing.assert_allclose(np.stack(pred.s_corrected), sources)
++        np.testing.assert_allclose(sources - pred[["s1", "s2"]].to_numpy(),
++                                   pred[["delta_s1", "delta_s2"]], atol=2e-6)
++    if model.evidential:
++        np.testing.assert_allclose(pred.aleatoric_variance, pred.beta / (pred.alpha - 1))
++        np.testing.assert_allclose(pred.epistemic_variance, pred.aleatoric_variance / pred.nu)
++        np.testing.assert_allclose(pred.total_variance, pred.aleatoric_variance + pred.epistemic_variance)
++        for key, tensors in p.test.tensors.items():
++            inputs = tensors[:-1]
++            with torch.no_grad():
++                raw = model(*inputs)
++            raw_params = raw[0] if model.two_stage else raw
++            rows = p.test.groups[key]["row_positions"].reshape(-1)
++            rise = p.target_scaler.scale_[0]
++            np.testing.assert_allclose(pred.beta.to_numpy()[rows],
++                                       raw_params[3].numpy().reshape(-1) * rise**2, rtol=1e-6)
++    else:
++        assert "beta" not in pred and "total_variance" not in pred
++
++
++def test_position_collision_is_not_silently_merged():
++    p, model = make_case("CNN1D", True)
++    key = next(iter(p.test.groups))
++    indices = p.test.groups[key]["row_positions"].ravel()
++    indices[1] = indices[0]
++    with pytest.raises(ValueError, match="row positions"):
++        predict_frame(model, p.test, p)
+diff --git a/mlguess/torch/_regression_backbones.py b/mlguess/torch/_regression_backbones.py
+new file mode 100644
+index 0000000..a4899c5
+--- /dev/null
++++ b/mlguess/torch/_regression_backbones.py
+@@ -0,0 +1,230 @@
++"""Backbones and source accounting shared by the scalar Torch regression models."""
++from operator import index
++
++import torch
++from torch import nn
++from torch.nn import functional as F
++
++from .checkpoint import load_state_dict
++from .layers import LinearNormalGamma
++from .mc_dropout import as_model_input, inference_context, _output_moments, _scale_moments
++
++
++def _width(value):
++    if isinstance(value, bool) or index(value) < 1:
++        raise ValueError("Feature counts, kernel sizes and hidden widths must be positive.")
++    return index(value)
++
++
++def _mlp(in_features, widths, dropout):
++    layers = []
++    for width in widths:
++        layers.extend((nn.Linear(_width(in_features), _width(width)), nn.ReLU(), nn.Dropout(dropout)))
++        in_features = width
++    return nn.Sequential(*layers)
++
++
++class CausalEncoder(nn.Module):
++    """Three left-padded convolutions preserve sequence length and temporal causality."""
++
++    def __init__(self, in_features, widths, dropout, kernel_sizes):
++        super().__init__()
++        self.in_features = _width(in_features)
++        self.kernel_sizes = tuple(_width(k) for k in kernel_sizes)
++        if len(self.kernel_sizes) != 3:
++            raise ValueError("kernel_sizes must contain exactly three positive integers.")
++        self.convs = nn.ModuleList()
++        for width, kernel in zip(widths, self.kernel_sizes):
++            self.convs.append(nn.Conv1d(_width(in_features), _width(width), kernel))
++            in_features = width
++        self.dropout = nn.Dropout(dropout)
++
++    def forward(self, x):
++        if x.ndim != 3 or x.shape[-1] != self.in_features or x.shape[1] == 0:
++            raise ValueError(f"Expected [batch, positive time, {self.in_features}] input.")
++        x = x.transpose(1, 2)
++        for conv, k in zip(self.convs, self.kernel_sizes):
++            x = self.dropout(F.relu(conv(F.pad(x, (k - 1, 0)))))
++        return x.transpose(1, 2)
++
++
++class DualEncoder(nn.Module):
++    """Concatenate causal temporal features and time-broadcast static features."""
++
++    def __init__(self, n_fts, n_fstatic, temporal_widths, static_widths,
++                 drop_rate_ts, drop_rate_stt, kernel_sizes, fusion_width=None):
++        super().__init__()
++        self.temporal = CausalEncoder(n_fts, temporal_widths, drop_rate_ts, kernel_sizes)
++        self.static = _mlp(n_fstatic, static_widths, drop_rate_stt)
++        self.n_fstatic = _width(n_fstatic)
++        joint_width = temporal_widths[-1] + static_widths[-1]
++        # A Linear over the last axis is a 1x1 temporal convolution with the
++        # same bias. The two-stage DB uses a fusion layer before its source heads.
++        self.fusion = (nn.Identity() if fusion_width is None
++                       else nn.Linear(joint_width, _width(fusion_width)))
++
++    def forward(self, x_ts, x_static):
++        h = self.temporal(x_ts)
++        if x_static.ndim != 2 or x_static.shape != (h.shape[0], self.n_fstatic):
++            raise ValueError(f"Expected static input of shape [batch, {self.n_fstatic}].")
++        static = self.static(x_static).unsqueeze(1).expand(-1, h.shape[1], -1)
++        return self.fusion(torch.cat((h, static), dim=-1))
++
++
++class CorrectionHead(nn.Module):
++    """Independent residual head consuming shared features and one embedded source."""
++
++    def __init__(self, hout, hh1, hh2, dropout, hsk):
++        super().__init__()
++        self.source_embed = nn.Sequential(nn.Linear(1, _width(hsk)), nn.ReLU(), nn.Linear(hsk, hsk))
++        self.hidden = _mlp(hout + hsk, (hh1, hh2), dropout)
++        self.out = nn.Linear(hh2, 1)
++
++    def forward(self, shared, source):
++        embedded = self.source_embed(source.unsqueeze(-1))
++        return self.out(self.hidden(torch.cat((shared, embedded), dim=-1))).squeeze(-1)
++
++
++def _buffer_values(value, size, name):
++    tensor = torch.as_tensor(value, dtype=torch.float32).detach().reshape(-1).clone()
++    if tensor.numel() != size or not torch.isfinite(tensor).all():
++        raise ValueError(f"{name} must contain {size} finite value(s).")
++    return tensor
++
++
++class ScalarHead(nn.Module):
++    """Predict scalar NIG parameters, optionally taking the location from a source sum."""
++
++    def __init__(self, width, evidential, source_location=False):
++        super().__init__()
++        self.evidential = evidential
++        self.source_location = source_location
++        if source_location:
++            # No independent location parameter: gamma must equal the source sum.
++            self.projection = nn.Linear(width, 3) if evidential else None
++        elif evidential:
++            self.projection = LinearNormalGamma(width, 1, spectral_norm=False)
++        else:
++            self.projection = nn.Linear(width, 1)
++
++    def forward(self, hidden, location=None):
++        if not self.evidential:
++            return location if self.source_location else self.projection(hidden).squeeze(-1)
++        if self.source_location:
++            logits = self.projection(hidden).reshape(*location.shape, 3)
++            nu, alpha_m1, beta = F.softplus(logits).unbind(-1)
++            alpha = 1 + alpha_m1
++        else:
++            # LinearNormalGamma expects examples along its first dimension.
++            params = self.projection(hidden.reshape(-1, hidden.shape[-1]))
++            location, nu, alpha, beta = (p.reshape(hidden.shape[:-1]) for p in params)
++        # Softplus is positive in exact arithmetic. Guard underflow and the
++        # rounding of 1 + tiny evidence to exactly 1 (undefined NIG variance).
++        eps = torch.finfo(nu.dtype).eps
++        return location, nu.clamp_min(eps), alpha.clamp_min(1 + eps), beta.clamp_min(eps)
++
++
++class ScalarRegressionModel(nn.Module):
++    """Scalar predictive moments with the same affine variance convention as DNN."""
++    two_stage = False
++    sequential = True
++
++    def predict(self, *inputs, y_scaler=None, return_uncertainties=True):
++        """Run in eval mode and restore the original module states afterwards.
++
++        With uncertainties enabled the prediction is (mean, aleatoric variance,
++        epistemic variance, total variance), optionally in target physical units.
++        Otherwise it is the raw NIG tuple or point tensor in target coordinates.
++        Two-stage models always retain (prediction, corrected, delta, hidden);
++        the latter three tensors retain their forward-pass coordinates.
++        """
++        if return_uncertainties and not self.evidential:
++            raise ValueError("Use return_uncertainties=False for a point model.")
++        with inference_context(self):
++            output = self(*(as_model_input(x, self) for x in inputs))
++            if not return_uncertainties:
++                return output
++            params = output[0] if self.two_stage else output
++            moments = self.predict_uncertainty(params, y_scaler=y_scaler)
++            return (moments, *output[1:]) if self.two_stage else moments
++
++    def predict_uncertainty(self, params, y_scaler=None):
++        """Return DNN-style moments for per-row or per-timestep NIG parameters."""
++        if not self.evidential:
++            raise ValueError("Evidential parameters are required to compute uncertainty.")
++        parts = tuple(params)
++        if len(parts) != 4 or not all(isinstance(p, torch.Tensor) for p in parts):
++            raise ValueError("Expected a tuple of four scalar NIG parameter tensors.")
++        shape = parts[0].shape
++        if any(p.shape != shape for p in parts):
++            raise ValueError("All NIG parameter tensors must have the same shape.")
++        flat = tuple(p.reshape(-1, 1) for p in parts)
++        mean, ale, epi, _ = _output_moments(flat, "nig")
++        mean, ale, epi = _scale_moments(mean, ale, epi, y_scaler)
++        moments = mean, ale, epi, ale + epi
++        if not all(torch.isfinite(p).all() for p in moments):
++            raise ValueError("Predictive uncertainty moments must be finite.")
++        return tuple(p.reshape(shape) for p in moments)
++
++    def load_weights(self, weights_path, *, weights_only=True):
++        """Restore a state dict or trainer checkpoint, including source scaler buffers."""
++        checkpoint = load_state_dict(weights_path, weights_only=weights_only)
++        self.load_state_dict(checkpoint.get("model_state_dict", checkpoint))
++
++
++class SourceModel(ScalarRegressionModel):
++    """Correct source inputs; sum in physical units, then transform to target scale.
++
++    The model assumes sources occupy the first n_sources input channels. Each
++    correction head produces a residual in that source's input coordinates.
++    Standardized inputs require all four affine scaling statistics from training.
++    Without statistics, sources and target are assumed to use the same raw units.
++    A supplied threshold is a lower bound in *source input coordinates*. With
++    threshold=None, the lower bound is zero in raw units for each source.
++
++    Forward returns (prediction, s_corrected, s_delta, hidden). The returned
++    s_delta is the head's proposal before clamping, matching the reference
++    diversity loss. Effective physical corrections are corrected minus original.
++    """
++    two_stage = True
++
++    def __init__(self, n_sources, n_features, hout, hh1, hh2, hdrop_rate, hsk,
++                 threshold, source_mean, source_scale, target_mean, target_scale, evidential):
++        super().__init__()
++        self.n_sources = _width(n_sources)
++        if self.n_sources > n_features:
++            raise ValueError("n_sources must not exceed the number of source-bearing input features.")
++        provided = tuple(v is not None for v in (source_mean, source_scale, target_mean, target_scale))
++        if any(provided) and not all(provided):
++            raise ValueError("Provide source_mean, source_scale, target_mean and target_scale together.")
++        if not any(provided):
++            source_mean, source_scale = torch.zeros(n_sources), torch.ones(n_sources)
++            target_mean, target_scale = 0.0, 1.0
++        for name, val, size in (("source_mean", source_mean, n_sources),
++                                ("source_scale", source_scale, n_sources),
++                                ("target_mean", target_mean, 1), ("target_scale", target_scale, 1)):
++            data = _buffer_values(val, size, name)
++            if name.endswith("_scale") and (data <= 0).any():
++                raise ValueError(f"{name} must be positive.")
++            self.register_buffer(name, data)
++        if threshold is None:
++            lower = -self.source_mean / self.source_scale
++        else:
++            lower = torch.as_tensor(threshold, dtype=torch.float32).reshape(-1)
++            if lower.numel() == 1:
++                lower = lower.expand(n_sources)
++        self.register_buffer("threshold", _buffer_values(lower, n_sources, "threshold"))
++        self.heads = nn.ModuleList(
++            CorrectionHead(hout, hh1, hh2, hdrop_rate, hsk) for _ in range(n_sources)
++        )
++        self.evidential = evidential
++        self.output_head = ScalarHead(hout, evidential, source_location=True)
++
++    def _source_output(self, x, hidden):
++        original = x[..., :self.n_sources]
++        proposed = torch.stack([head(hidden, original[..., k])
++                                for k, head in enumerate(self.heads)], dim=-1)
++        corrected = torch.maximum(original + proposed, self.threshold)
++        raw = corrected * self.source_scale + self.source_mean
++        location = (raw.sum(dim=-1, keepdim=not self.sequential) - self.target_mean) / self.target_scale
++        return self.output_head(hidden, location), corrected, proposed, hidden
+diff --git a/mlguess/torch/models.py b/mlguess/torch/models.py
+index 6cfae58..0d7fa4e 100644
+--- a/mlguess/torch/models.py
++++ b/mlguess/torch/models.py
+@@ -8,6 +8,9 @@ import numpy as np
+ import os
+ from mlguess.torch.checkpoint import load_model_state, load_state_dict
+ from mlguess.torch.layers import LinearNormalGamma
++from mlguess.torch._regression_backbones import (
++    CausalEncoder, DualEncoder, ScalarHead, ScalarRegressionModel, SourceModel, _mlp,
++)
+ from mlguess.torch.mc_dropout import as_model_input, inference_context, monte_carlo_dropout, _scale_moments, _output_moments
+ 
+ logger = logging.getLogger(__name__)
+@@ -358,6 +361,106 @@ class CategoricalDNN(DNN):
+ 
+ 
+ 
++class CNN1D(ScalarRegressionModel):
++    """Three causal convolutions and a scalar prediction at every timestep.
++
++    Accepts [batch, time, in_features]. The default returns (gamma, nu, alpha,
++    beta), each [batch, time]; evidential=False returns a point prediction.
++    """
++    def __init__(self, in_features, h1, h2, hout, drop_rate, *,
++                 evidential=True, kernel_sizes=(7, 5, 3)):
++        super().__init__()
++        self.evidential = evidential
++        self.encoder = CausalEncoder(in_features, (h1, h2, hout), drop_rate, kernel_sizes)
++        self.output_head = ScalarHead(hout, evidential)
++
++    def forward(self, x):
++        return self.output_head(self.encoder(x))
++
++
++class DB(ScalarRegressionModel):
++    """Parallel causal CNN and station-static MLP, fused at each timestep.
++
++    Accepts x_ts [B,T,n_fts] and x_static [B,n_fstatic]. Returns four NIG
++    parameters [B,T], or a single [B,T] tensor with evidential=False.
++    """
++    def __init__(self, n_fts, n_fstatic, hts1, hts2, hts3, hstt1, hstt2,
++                 drop_rate_ts, drop_rate_stt, *, evidential=True, kernel_sizes=(7, 5, 3)):
++        super().__init__()
++        self.evidential = evidential
++        self.encoder = DualEncoder(n_fts, n_fstatic, (hts1, hts2, hts3), (hstt1, hstt2),
++                                   drop_rate_ts, drop_rate_stt, kernel_sizes)
++        self.output_head = ScalarHead(hts3 + hstt2, evidential)
++
++    def forward(self, x_ts, x_static):
++        return self.output_head(self.encoder(x_ts, x_static))
++
++
++class TwoStageMLP(SourceModel):
++    """Shared three-layer MLP with one residual correction head per source.
++
++    Input is [B,n_fkey+n_fcontrol], with the source columns first. The four
++    outputs are (prediction, s_corrected, s_delta, hidden): the NIG parameters
++    or point prediction are [B,1]; corrected sources and deltas are [B,K].
++    See SourceModel for source and threshold units.
++    """
++    sequential = False
++
++    def __init__(self, n_sources, n_fkey, n_fcontrol, h1, h2, hout, drop_rate,
++                 hh1, hh2, hdrop_rate, hsk, threshold=None, source_mean=None,
++                 source_scale=None, target_mean=None, target_scale=None, *, evidential=True):
++        width = n_fkey + n_fcontrol
++        super().__init__(n_sources, width, hout, hh1, hh2, hdrop_rate, hsk, threshold,
++                         source_mean, source_scale, target_mean, target_scale, evidential)
++        self.input_size = width
++        self.shared_mlp = _mlp(width, (h1, h2, hout), drop_rate)
++
++    def forward(self, x):
++        if x.ndim != 2 or x.shape[-1] != self.input_size:
++            raise ValueError(f"Expected [batch, {self.input_size}] input.")
++        return self._source_output(x, self.shared_mlp(x))
++
++
++class TwoStageCNN1D(SourceModel):
++    """Causal CNN with a residual correction head for each leading source channel.
++
++    Accepts [B,T,n_fkey+n_fcontrol]. Returns (prediction, s_corrected, s_delta,
++    hidden); prediction tensors are [B,T] and per-source quantities are [B,T,K].
++    """
++    def __init__(self, n_sources, n_fkey, n_fcontrol, h1, h2, hout, drop_rate,
++                 hh1, hh2, hdrop_rate, hsk, threshold=None, source_mean=None,
++                 source_scale=None, target_mean=None, target_scale=None, *,
++                 evidential=True, kernel_sizes=(7, 5, 3)):
++        width = n_fkey + n_fcontrol
++        super().__init__(n_sources, width, hout, hh1, hh2, hdrop_rate, hsk, threshold,
++                         source_mean, source_scale, target_mean, target_scale, evidential)
++        self.shared_cnn1d = CausalEncoder(width, (h1, h2, hout), drop_rate, kernel_sizes)
++
++    def forward(self, x):
++        return self._source_output(x, self.shared_cnn1d(x))
++
++
++class TwoStageDB(SourceModel):
++    """Causal CNN/static-MLP fusion with a residual correction head per source.
++
++    The first n_sources channels of x_ts [B,T,n_fts] are source contributions.
++    x_static [B,n_fstatic] is shared across the station's timesteps. Returns
++    (prediction, s_corrected, s_delta, hidden) with scalar predictions [B,T]
++    and per-source quantities [B,T,K].
++    """
++    def __init__(self, n_sources, n_fts, n_fstatic, hts1, hts2, hts3, hstt1, hstt2,
++                 drop_rate_ts, drop_rate_stt, hh1, hh2, hout, hdrop_rate, hsk,
++                 threshold=None, source_mean=None, source_scale=None, target_mean=None,
++                 target_scale=None, *, evidential=True, kernel_sizes=(7, 5, 3)):
++        super().__init__(n_sources, n_fts, hout, hh1, hh2, hdrop_rate, hsk, threshold,
++                         source_mean, source_scale, target_mean, target_scale, evidential)
++        self.shared_db = DualEncoder(n_fts, n_fstatic, (hts1, hts2, hts3), (hstt1, hstt2),
++                                     drop_rate_ts, drop_rate_stt, kernel_sizes, fusion_width=hout)
++
++    def forward(self, x_ts, x_static):
++        return self._source_output(x_ts, self.shared_db(x_ts, x_static))
++
++
+ if __name__ == "__main__":
+     # Model parameters
+     input_size = 10
+diff --git a/mlguess/torch/nn_data.py b/mlguess/torch/nn_data.py
+new file mode 100644
+index 0000000..7acb12f
+--- /dev/null
++++ b/mlguess/torch/nn_data.py
+@@ -0,0 +1,447 @@
++"""Station-based PM2.5 data preparation for the PyTorch regression architectures.
++
++Sequences are chronological, per station and per contiguous run. Equal-length
++runs share a batch without padding. A row with an unobserved target still
++occupies its timestep. Standardization is fitted on the training split only.
++"""
++
++from collections import defaultdict
++from dataclasses import dataclass
++import json
++from pathlib import Path
++
++import numpy as np
++import pandas as pd
++import torch
++from sklearn.model_selection import train_test_split
++from sklearn.preprocessing import StandardScaler
++from torch.utils.data import Dataset
++
++
++CMAQ_BL_FEATURES = ["cmaq_pm25"]
++CMAQ_FEATURES = ["cmaq_pm25_bb", "cmaq_pm25_anthro", "cmaq_pm25_othr"]
++AOD_FEATURES = ["aod"]
++WRF_FEATURES = ["wrf_pbl", "wrf_temp", "wrf_wspd", "wrf_rh"]
++LU_FEATURES = ["population", "elevation", "builtup", "rice", "forest",
++               "minor_road_length", "major_road_length"]
++KEY_FEATURES = CMAQ_FEATURES + AOD_FEATURES
++CONTROL_FEATURES = WRF_FEATURES + LU_FEATURES
++FEATURES = KEY_FEATURES + CONTROL_FEATURES
++FEATURES_BL = CMAQ_BL_FEATURES + CONTROL_FEATURES
++FEATURES_AB = CMAQ_FEATURES + CONTROL_FEATURES
++TS_FEATURES = CMAQ_FEATURES + AOD_FEATURES + WRF_FEATURES
++STATIC_FEATURES = LU_FEATURES
++N_SOURCES, N_FKEY, N_FCONTROL = len(CMAQ_FEATURES), len(KEY_FEATURES), len(CONTROL_FEATURES)
++N_FTS, N_FSTATIC = len(TS_FEATURES), len(STATIC_FEATURES)
++
++_MODEL_NAMES = {n.replace("_", ""): n for n in (
++    "cnn1d", "db", "two_stage_mlp", "two_stage_cnn1d", "two_stage_db"
++)}
++
++
++def _required(df, names):
++    missing = sorted(set(names) - set(df.columns))
++    if missing:
++        raise ValueError(f"Missing required columns: {missing}")
++
++
++def _finite_features(df, names):
++    _required(df, names)
++    values = df[list(names)].to_numpy(dtype=np.float64, na_value=np.nan)
++    invalid = ~np.isfinite(values).all(axis=0)
++    if invalid.any():
++        bad = [str(n) for n, flag in zip(names, invalid) if flag]
++        raise ValueError(f"Nonfinite predictor(s): {bad}. Supply finite predictors or "
++                         "apply a predictor imputer fitted on training data only.")
++    return values
++
++
++def _station_map(frame, group_col, region_col):
++    _required(frame, [group_col, region_col])
++    stations = frame[[group_col, region_col]].drop_duplicates().reset_index(drop=True)
++    if stations.isna().any().any():
++        raise ValueError("Station and region identifiers may not be missing.")
++    if stations[group_col].duplicated().any():
++        raise ValueError("Each station must belong to exactly one region.")
++    return stations
++
++
++def stratified_random_sampling(df, test_size, seed=51, min_per_side=1, *,
++                               group_col="stcode", region_col="region5"):
++    """Split stations using regional largest-remainder quotas; singletons stay in train.
++
++    Subject to the requested minimum per side in splittable regions. The test
++    fraction applies to eligible stations only, as in the reference pipeline.
++    """
++    if not 0 < test_size < 1 or not isinstance(min_per_side, int) or min_per_side < 1:
++        raise ValueError("Require 0 < test_size < 1 and a positive integer min_per_side.")
++    stations = _station_map(df, group_col, region_col)
++    sizes = stations[region_col].value_counts()
++    eligible = sizes[sizes >= 2 * min_per_side]
++    if eligible.empty:
++        raise ValueError("No region has enough distinct stations for this holdout. "
++                         "Supply explicit disjoint splits or select a region holdout.")
++    total = int(eligible.sum())
++    target = int(np.clip(round(total * test_size), min_per_side * len(eligible),
++                         total - min_per_side * len(eligible)))
++    quotas = eligible / total * target
++    alloc = {r: min(max(int(np.floor(quotas[r])), min_per_side), n - min_per_side)
++             for r, n in eligible.items()}
++    # Choose the largest unmet quota (ties follow the original region order).
++    while sum(alloc.values()) < target:
++        r = max((r for r in alloc if alloc[r] < eligible[r] - min_per_side),
++                key=lambda r: quotas[r] - alloc[r])
++        alloc[r] += 1
++    while sum(alloc.values()) > target:
++        r = max((r for r in alloc if alloc[r] > min_per_side),
++                key=lambda r: alloc[r] - quotas[r])
++        alloc[r] -= 1
++    test_ids = []
++    for region, count in alloc.items():
++        ids = stations.loc[stations[region_col] == region, group_col]
++        _, held = train_test_split(ids, test_size=count, random_state=seed)
++        test_ids.extend(held.tolist())
++    mask = stations[group_col].isin(test_ids)
++    return stations.loc[~mask].reset_index(drop=True), stations.loc[mask].reset_index(drop=True)
++
++
++def split_pm25_stations(frame, *, split_val=True, val_size=0.2, test_size=0.2,
++                        seed=51, group_col="stcode", region_col="region5"):
++    """Split all rows of a station together. Validation fraction is of remaining stations."""
++    train_st, test_st = stratified_random_sampling(frame, test_size, seed,
++                                                   group_col=group_col, region_col=region_col)
++    parts = [train_st, test_st]
++    if split_val:
++        train_st, val_st = stratified_random_sampling(train_st, val_size, seed,
++                                                     group_col=group_col, region_col=region_col)
++        parts = [train_st, val_st, test_st]
++    return tuple(frame.loc[frame[group_col].isin(st[group_col])].copy() for st in parts)
++
++
++def _read_pm25(path, features):
++    frame = pd.read_csv(path, dtype={"stcode": "string"})
++    _required(frame, [*features, "region5", "stcode", "date", "pm25"])
++    frame["date"] = pd.to_datetime(frame["date"], errors="raise")
++    if frame["date"].isna().any():
++        raise ValueError("Missing dates cannot be assigned to station sequences.")
++    frame["year"] = frame["date"].dt.year
++    return frame
++
++
++def _apply_train_imputer(parts, train_imputer):
++    if train_imputer is None:
++        return parts
++    train, *held = parts
++    updated = train_imputer(train.copy())
++    if not isinstance(updated, pd.DataFrame):
++        raise ValueError("train_imputer must return a DataFrame.")
++    keys = ["stcode", "date"]
++    if not train[keys].reset_index(drop=True).equals(updated[keys].reset_index(drop=True)):
++        raise ValueError("train_imputer must retain the training station/date rows in order.")
++    return (updated, *held)
++
++
++def load_pm25_data(pm25_dir, features=FEATURES, split_val=False, val_size=0.2,
++                   test_size=0.2, seed=51, *, train_imputer=None):
++    """Read a PM2.5 CSV and split by station. A supplied imputer sees only train.
++
++    The attachment's external fill_missing_val module is not part of the
++    project. Without a callback, unobserved labels stay NaN and training uses
++    an observed-label mask. Validation/test labels are never imputed here.
++    """
++    frame = _read_pm25(pm25_dir, features)
++    parts = split_pm25_stations(frame, split_val=split_val, val_size=val_size,
++                                test_size=test_size, seed=seed)
++    return _apply_train_imputer(parts, train_imputer)
++
++
++def load_pm25_data_region_holdout(pm25_dir, features=FEATURES, region="Central",
++                                  *, train_imputer=None):
++    """Return train and test frames holding out whole regions and all their stations."""
++    frame = _read_pm25(pm25_dir, features)
++    _station_map(frame, "stcode", "region5")
++    held = {region} if isinstance(region, str) else set(region)
++    unknown = held - set(frame["region5"])
++    if unknown:
++        raise ValueError(f"Unknown held-out region(s): {unknown}")
++    mask = frame.region5.isin(held)
++    if mask.all() or not mask.any():
++        raise ValueError("Region holdout must leave both train and test rows.")
++    return _apply_train_imputer((frame.loc[~mask].copy(), frame.loc[mask].copy()), train_imputer)
++
++
++def transform_target_preserve_nan(series, scaler):
++    """Standardize observed labels only; missing labels remain at their original positions."""
++    values = pd.Series(series).to_numpy(dtype=float, na_value=np.nan).reshape(-1, 1)
++    out = np.full(values.shape, np.nan)
++    valid = np.isfinite(values[:, 0])
++    if valid.any():
++        out[valid] = scaler.transform(values[valid])
++    return out[:, 0]
++
++
++class MLPDataset(Dataset):
++    """Tabular inputs [N,F] and standardized targets [N,1], with missing labels retained."""
++
++    def __init__(self, X, y, feature_scaler, target_scaler):
++        self.X = torch.as_tensor(feature_scaler.transform(X), dtype=torch.float32)
++        y_std = transform_target_preserve_nan(np.asarray(y).reshape(-1), target_scaler)
++        self.y = torch.as_tensor(y_std[:, None], dtype=torch.float32)
++        if len(self.X) != len(self.y):
++            raise ValueError("Expected one target per input row.")
++
++    def __len__(self):
++        return len(self.y)
++
++    def __getitem__(self, index):
++        return self.X[index], self.y[index]
++
++
++def _canonical_frame(frame, group_col, date_col):
++    _required(frame, [group_col, date_col])
++    if frame.empty or frame[group_col].isna().any():
++        raise ValueError("A split must contain observations with station identifiers.")
++    frame = frame.copy()
++    frame[date_col] = pd.to_datetime(frame[date_col], errors="raise")
++    if frame[date_col].isna().any() or frame.duplicated([group_col, date_col]).any():
++        raise ValueError("Each station must have unique, nonmissing timestamps.")
++    return frame
++
++
++def prepare_3d_input(df, ts_cols, static_cols=None, target_col="pm25",
++                     group_col="stcode", date_col="date", verbose=False, *,
++                     cadence="1D"):
++    """Bucket per-station sequences by actual length without padding.
++
++    X or X_ts is [N,T,F]; a DB group's X_static is [N,F_static]. y, dates and
++    row_positions are [N,T]; row_positions index the input frame by position.
++    Missing *labels* do not break a sequence. Missing *timesteps* start a new
++    causal run. Set cadence=None only if consecutive rows, regardless of time
++    separation, should count as adjacent steps in your application.
++    """
++    df = _canonical_frame(df, group_col, date_col).reset_index(drop=True)
++    ts_cols = tuple(ts_cols)
++    static_cols = tuple(static_cols or ())
++    _required(df, [target_col, *ts_cols, *static_cols])
++    if not ts_cols or len(set(ts_cols + static_cols)) != len(ts_cols + static_cols):
++        raise ValueError("Supply distinct temporal and static feature names.")
++    _finite_features(df, ts_cols + static_cols)
++    step = None if cadence is None else pd.Timedelta(cadence)
++    if step is not None and step <= pd.Timedelta(0):
++        raise ValueError("cadence must be a positive time interval or None.")
++    feature_key = "X_ts" if static_cols else "X"
++    groups = defaultdict(lambda: defaultdict(list))
++    for station, part in df.sort_values([group_col, date_col]).groupby(group_col, sort=False, observed=True):
++        if static_cols and (part[list(static_cols)].nunique(dropna=False) != 1).any():
++            raise ValueError(f"Static features vary within station {station!r}.")
++        boundaries = part[date_col].diff().ne(step).cumsum() if step is not None else np.zeros(len(part))
++        for _, run in part.groupby(boundaries, sort=False):
++            group = groups[len(run)]
++            group["stations"].append(station)
++            group["dates"].append(run[date_col].to_numpy())
++            group["row_positions"].append(run.index.to_numpy(dtype=np.int64))
++            group["y"].append(run[target_col].to_numpy(dtype=float, na_value=np.nan))
++            group[feature_key].append(run[list(ts_cols)].to_numpy(dtype=float))
++            if static_cols:
++                group["X_static"].append(run[list(static_cols)].iloc[0].to_numpy(dtype=float))
++    result = {T: {key: (vals if key == "stations" else np.stack(vals)) for key, vals in group.items()}
++              for T, group in groups.items()}
++    if verbose:
++        for T, group in result.items():
++            print(f"T={T}: {len(group['stations'])} sequence(s), {feature_key}={group[feature_key].shape}")
++    return result
++
++
++def groups_to_tensors(groups, mode="db", reverse_sort=True):
++    """Convert grouped arrays to (inputs..., targets), keeping the station axis first."""
++    mode = mode.lower()
++    if mode not in {"db", "cnn1d", "mlp"}:
++        raise ValueError("mode must be db, cnn1d or mlp.")
++    keys = ("X_ts", "X_static", "y") if mode == "db" else ("X", "y")
++    lengths = sorted(groups, reverse=True) if reverse_sort else list(groups)
++    return {T: tuple(torch.as_tensor(groups[T][k], dtype=torch.float32) for k in keys) for T in lengths}
++
++
++def source_sum_scaler_params(source_scaler, target_scaler, n_sources=3):
++    """Return training affine constants for summing corrected sources in physical units."""
++    if not 1 <= n_sources <= len(source_scaler.scale_) or len(target_scaler.scale_) != 1:
++        raise ValueError("Expect the first n_sources input features and one target.")
++    return dict(source_mean=np.asarray(source_scaler.mean_[:n_sources]).copy(),
++                source_scale=np.asarray(source_scaler.scale_[:n_sources]).copy(),
++                target_mean=float(target_scaler.mean_[0]), target_scale=float(target_scaler.scale_[0]))
++
++
++def inverse_sources(arr_std, scaler, n_total_features):
++    """Undo feature standardization for the first K source columns of any [..., K] array."""
++    arr = np.asarray(arr_std)
++    k = arr.shape[-1]
++    if scaler.n_features_in_ != n_total_features or not 1 <= k <= n_total_features:
++        raise ValueError("Array/scaler feature widths are incompatible.")
++    return arr * scaler.scale_[:k] + scaler.mean_[:k]
++
++
++@dataclass
++class PreparedSplit:
++    """Original chronological rows, aligned NumPy groups, and CPU tensors for one split."""
++
++    frame: pd.DataFrame
++    groups: dict
++    tensors: dict
++
++
++@dataclass
++class PM25Preprocessor:
++    """Fitted training transforms. transform() is also suitable for unlabeled inference."""
++
++    model_name: str
++    ts_cols: tuple
++    static_cols: tuple
++    source_names: tuple
++    target_col: str
++    group_col: str
++    date_col: str
++    cadence: object
++    feature_scaler: StandardScaler
++    static_scaler: StandardScaler | None
++    target_scaler: StandardScaler
++
++    def save(self, path):
++        """Write the input schema and fitted training statistics to JSON, without row data."""
++        def stats(scaler):
++            if scaler is None:
++                return None
++            return {k: np.asarray(getattr(scaler, k)).tolist()
++                    for k in ("mean_", "scale_", "var_", "n_samples_seen_")}
++
++        schema = {k: getattr(self, k) for k in (
++            "model_name", "ts_cols", "static_cols", "source_names", "target_col", "group_col", "date_col")}
++        schema["cadence"] = None if self.cadence is None else str(pd.Timedelta(self.cadence))
++        payload = {"format": "miles-guess-pm25-v1", "schema": schema,
++                   "scalers": {k: stats(getattr(self, k)) for k in
++                               ("feature_scaler", "static_scaler", "target_scaler")}}
++        Path(path).write_text(json.dumps(payload, indent=2, allow_nan=False) + "\n", encoding="utf-8")
++
++    @staticmethod
++    def load(path):
++        """Restore inference transforms; no original observations or refitting are needed."""
++        data = json.loads(Path(path).read_text(encoding="utf-8"))
++        if data.get("format") != "miles-guess-pm25-v1":
++            raise ValueError("Unsupported PM2.5 preprocessor format.")
++        schema = data["schema"]
++        for k in ("ts_cols", "static_cols", "source_names"):
++            schema[k] = tuple(schema[k])
++
++        def restore(stats, width):
++            if not width and stats is None:
++                return None
++            if not width or stats is None:
++                raise ValueError("Scaler and schema disagree about the input width.")
++            scaler = StandardScaler()
++            for attr in ("mean_", "scale_", "var_"):
++                value = np.asarray(stats[attr], dtype=float)
++                if value.shape != (width,) or not np.isfinite(value).all():
++                    raise ValueError(f"Invalid fitted scaler statistic: {attr}")
++                setattr(scaler, attr, value)
++            if np.any(scaler.scale_ <= 0) or np.any(scaler.var_ < 0):
++                raise ValueError("Invalid fitted scaler scale or variance.")
++            scaler.n_features_in_ = width
++            scaler.n_samples_seen_ = int(stats["n_samples_seen_"])
++            return scaler
++
++        widths = {"feature_scaler": len(schema["ts_cols"]), "static_scaler": len(schema["static_cols"]),
++                  "target_scaler": 1}
++        return PM25Preprocessor(**schema, **{k: restore(data["scalers"][k], n) for k, n in widths.items()})
++
++    def transform(self, frame, *, training_target_col=None):
++        frame = _canonical_frame(frame, self.group_col, self.date_col)
++        frame = frame.sort_values([self.group_col, self.date_col]).reset_index(drop=True)
++        if self.target_col not in frame:
++            frame[self.target_col] = np.nan
++        label = self.target_col if training_target_col is None else training_target_col
++        _required(frame, [label])
++        X = self.feature_scaler.transform(_finite_features(frame, self.ts_cols))
++        y = transform_target_preserve_nan(frame[label], self.target_scaler)
++        if self.model_name == "two_stage_mlp":
++            groups = {1: {"X": X, "y": y[:, None], "stations": frame[self.group_col].tolist(),
++                          "dates": frame[self.date_col].to_numpy(), "row_positions": np.arange(len(frame))}}
++            mode = "mlp"
++        else:
++            scaled = frame.copy()
++            scaled[list(self.ts_cols)] = X
++            scaled[self.target_col] = y
++            if self.static_cols:
++                scaled[list(self.static_cols)] = self.static_scaler.transform(_finite_features(frame, self.static_cols))
++            groups = prepare_3d_input(scaled, self.ts_cols, self.static_cols, self.target_col,
++                                      self.group_col, self.date_col, cadence=self.cadence)
++            mode = "db" if self.static_cols else "cnn1d"
++        return PreparedSplit(frame, groups, groups_to_tensors(groups, mode))
++
++
++@dataclass
++class PreparedPM25(PM25Preprocessor):
++    train: PreparedSplit
++    validation: PreparedSplit
++    test: PreparedSplit
++
++
++def prepare_pm25(train, validation, test, model_name, *, ts_cols=None, static_cols=None,
++                 source_names=None, target_col="pm25", group_col="stcode", date_col="date",
++                 cadence="1D", training_target_col=None):
++    """Fit train-only scalers and prepare all three disjoint station splits.
++
++    CNNs and the tabular model receive all predictors. DBs receive temporal
++    and static predictors as separate inputs. In every two-stage architecture,
++    the source columns must be the first temporal/input features, in source_names
++    order. If an external training-only imputer supplies a separate label column,
++    name it in training_target_col; held-out labels always use target_col.
++    """
++    key = str(model_name).replace("_", "").lower()
++    if key not in _MODEL_NAMES:
++        raise ValueError(f"Unknown model_name: {model_name!r}")
++    name = _MODEL_NAMES[key]
++    dual = name in {"db", "two_stage_db"}
++    if ts_cols is None:
++        ts_cols = TS_FEATURES if dual else FEATURES
++    ts_cols = tuple(ts_cols)
++    static_cols = tuple((STATIC_FEATURES if dual else ()) if static_cols is None else static_cols)
++    if not dual:
++        # Single-branch models consume static predictors as ordinary repeated channels.
++        ts_cols += static_cols
++        static_cols = ()
++    features = ts_cols + static_cols
++    if not ts_cols or (dual and not static_cols) or len(set(features)) != len(features):
++        raise ValueError("Expected distinct feature names and nonempty inputs for every branch.")
++    if set(features).intersection({target_col, training_target_col, group_col, date_col}):
++        raise ValueError("Targets, station IDs and timestamps cannot be predictors.")
++    sources = tuple(CMAQ_FEATURES if source_names is None else source_names)
++    if name.startswith("two_stage"):
++        if not sources or tuple(ts_cols[:len(sources)]) != sources:
++            raise ValueError("The first input features must be the declared source columns, in order.")
++    elif not set(sources).issubset(ts_cols):
++        sources = ()
++    for df in (train, validation, test):
++        _required(df, [group_col, date_col])
++    sets = [set(df[group_col]) for df in (train, validation, test)]
++    if any(sets[i] & sets[j] for i, j in ((0, 1), (0, 2), (1, 2))):
++        raise ValueError("Expected station-disjoint train, validation and test splits.")
++    label = target_col if training_target_col is None else training_target_col
++    _required(train, [label])
++    _required(validation, [target_col])
++    y = train[label].to_numpy(dtype=float, na_value=np.nan)
++    finite = np.isfinite(y)
++    if not finite.any():
++        raise ValueError("Training needs at least one finite target.")
++    processor = PM25Preprocessor(name, ts_cols, static_cols, sources, target_col,
++                                 group_col, date_col, cadence,
++                                 StandardScaler().fit(_finite_features(train, ts_cols)),
++                                 StandardScaler().fit(_finite_features(train, static_cols)) if dual else None,
++                                 StandardScaler().fit(y[finite, None]))
++    return PreparedPM25(**vars(processor),
++                        train=processor.transform(train, training_target_col=training_target_col),
++                        validation=processor.transform(validation), test=processor.transform(test))
++
++
++def collect_predictions(model, split, prepared, *, batch_size=128, device=None):
++    """Collect physical-unit predictions and, for two-stage models, corrected source columns."""
++    from .nn_training import predict_frame
++    return predict_frame(model, split, prepared, batch_size=batch_size, device=device)
+diff --git a/mlguess/torch/nn_training.py b/mlguess/torch/nn_training.py
+new file mode 100644
+index 0000000..10b344c
+--- /dev/null
++++ b/mlguess/torch/nn_training.py
+@@ -0,0 +1,295 @@
++"""Train and evaluate scalar station models on the splits prepared by nn_data.
++
++The reference's point fits use squared error. Evidential fits use the existing
++NIG marginal likelihood and evidence regularizer. In both cases, a two-stage
++model can regularize the cosine similarity of the *pre-clamp* corrections.
++"""
++from dataclasses import dataclass, field
++from pathlib import Path
++
++import numpy as np
++import pandas as pd
++import torch
++from torch.nn import functional as F
++
++from mlguess.uncertainty import affine_inverse_scale, nig_uncertainties
++from .models import CNN1D, DB, TwoStageMLP, TwoStageCNN1D, TwoStageDB, seed_everything
++from .nn_data import source_sum_scaler_params
++from .regression_losses import EvidentialRegressionLoss
++
++
++_ARCHITECTURES = {c.__name__.lower(): c for c in (CNN1D, DB, TwoStageMLP, TwoStageCNN1D, TwoStageDB)}
++
++
++def build_model(name, model_config, prepared):
++    """Instantiate the named architecture using training-fitted dimensions and scales.
++
++    The key/control split is contiguous and has no effect on the backbone
++    topology; two-stage models always read their source channels first. By
++    default their floor is zero in *raw* units. An explicit `threshold` is in
++    standardized source coordinates as in the reference implementation.
++    """
++    key = name.replace("_", "").lower()
++    if key not in _ARCHITECTURES:
++        raise ValueError(f"Unknown architecture {name!r}. Expected: {list(_ARCHITECTURES)}")
++    if prepared.model_name.replace("_", "").lower() != key:
++        raise ValueError("Use the same architecture to prepare the data and build the model.")
++    kwargs = dict(model_config)
++    n_features = int(prepared.feature_scaler.n_features_in_)
++    n_sources = len(prepared.source_names)
++    if key.endswith("db"):
++        derived = {"n_fts": n_features, "n_fstatic": int(prepared.static_scaler.n_features_in_)}
++    elif key == "cnn1d":
++        derived = {"in_features": n_features}
++    else:
++        n_key = n_sources + int(tuple(prepared.ts_cols)[n_sources:n_sources + 1] == ("aod",))
++        derived = {"n_fkey": n_key, "n_fcontrol": n_features - n_key}
++    if key.startswith("twostage"):
++        if not n_sources:
++            raise ValueError("A two-stage model requires named source contribution columns.")
++        derived.update(n_sources=n_sources, **source_sum_scaler_params(
++            prepared.feature_scaler, prepared.target_scaler, n_sources))
++        kwargs.setdefault("threshold", None)
++    collisions = set(derived) & kwargs.keys()
++    if collisions:
++        raise ValueError(f"These model options are derived from the training data: {sorted(collisions)}")
++    return _ARCHITECTURES[key](**kwargs, **derived)
++
++
++@dataclass
++class TrainingHistory:
++    """Losses are weighted by the number of observed station-time targets."""
++    train_loss: list[float] = field(default_factory=list)
++    val_loss: list[float] = field(default_factory=list)
++    best_epoch: int = 0  # one-based; the final epoch for a fixed-length fit
++
++    @property
++    def epochs_run(self):
++        return len(self.train_loss)
++
++
++def cosine_diversity_loss(delta):
++    """Absolute pairwise cosine similarity of *columns* (source correction vectors)."""
++    d = delta.reshape(-1, delta.shape[-1])
++    if d.shape[1] < 2:
++        return d.sum() * 0
++    d = F.normalize(d, dim=0)
++    return _off_diagonal_mean(d.T @ d)
++
++
++def _off_diagonal_mean(matrix):
++    mask = ~torch.eye(matrix.shape[0], dtype=torch.bool, device=matrix.device)
++    return matrix[mask].abs().mean()
++
++
++def _batches(split, batch_size, rng=None):
++    """Keep each station sequence intact; shuffle groups and stations only."""
++    keys = list(split.tensors)
++    if rng is not None:
++        rng.shuffle(keys)
++    for key in keys:
++        tensors = split.tensors[key]
++        n = tensors[0].shape[0]
++        if any(x.shape[0] != n for x in tensors):
++            raise ValueError("Mismatched station counts in a length group.")
++        order = np.arange(n) if rng is None else rng.permutation(n)
++        chunk_size = max(n, 1) if batch_size is None else batch_size
++        for start in range(0, n, chunk_size):
++            ix = order[start:start + chunk_size]
++            yield key, ix, tuple(x[ix] for x in tensors)
++
++
++def _unpack(model, output):
++    if model.two_stage:
++        prediction, corrected, delta, _ = output
++    else:
++        prediction, corrected, delta = output, None, None
++    return (tuple(prediction) if model.evidential else (prediction,)), corrected, delta
++
++
++def _epoch(model, split, batch_size, loss_fn, lambda_sim, optimizer=None, rng=None):
++    training = optimizer is not None
++    model.train(training)
++    device = next(model.parameters()).device
++    total_loss, n_total, gram = 0.0, 0, None
++    with torch.set_grad_enabled(training):
++        for _, _, tensors in _batches(split, batch_size, rng):
++            *inputs, target = (x.to(device) for x in tensors)
++            observed = torch.isfinite(target)
++            n = int(observed.sum().item())
++            if not n:
++                continue
++            if training:
++                optimizer.zero_grad(set_to_none=True)
++            params, _, delta = _unpack(model, model(*inputs))
++            if any(p.shape != target.shape for p in params):
++                raise ValueError("Prediction and target shapes must agree; refusing to broadcast labels.")
++            pp = [p[observed] for p in params]
++            y = target[observed]
++            loss = loss_fn(*pp, y) if model.evidential else F.mse_loss(pp[0], y)
++            if model.two_stage and lambda_sim:
++                # MLP targets [N,1] and sequences [N,T] both index one K-vector per label.
++                d = delta.reshape(-1, delta.shape[-1])[observed.reshape(-1)]
++                if training:
++                    loss = loss + lambda_sim * cosine_diversity_loss(d)
++                elif d.shape[-1] > 1:
++                    # Validation cosine similarity is computed once across *all*
++                    # observed examples, independent of grouping and batch size.
++                    dd = d.detach().to(device="cpu", dtype=torch.float64)
++                    block = dd.T @ dd
++                    gram = block if gram is None else gram + block
++            if not torch.isfinite(loss).item():
++                raise FloatingPointError("Nonfinite model loss on observed targets.")
++            if training:
++                loss.backward()
++                optimizer.step()
++            total_loss += loss.item() * n
++            n_total += n
++    if not n_total:
++        raise ValueError("The training/validation split contains no observed targets.")
++    value = total_loss / n_total
++    if gram is not None:
++        norms = gram.diag().clamp_min(0).sqrt().clamp_min(1e-12)
++        value += lambda_sim * _off_diagonal_mean(gram / (norms[:, None] * norms[None, :])).item()
++    if not np.isfinite(value):
++        raise FloatingPointError("Nonfinite aggregate model loss.")
++    return value
++
++
++def fit_model(model, train, validation=None, *, epochs=25, learning_rate=1e-3, batch_size=16,
++              patience=None, lambda_sim=0.05, evidential_coef=0.01, seed=88,
++              device="cpu", checkpoint_path=None):
++    """Fit with Adam. If supplied, validation selects the weights restored at return.
++
++    A batch contains up to `batch_size` complete equal-length station sequences,
++    or rows for an MLP. Use `batch_size=None` for one update per length group,
++    exactly as in the attached sequence training routines. No sequence is
++    padded or split across updates. To reproduce
++    initialization, call `seed_everything(seed)` **before** building the model;
++    this function controls subsequent dropout and batch ordering. `checkpoint_path`
++    optionally saves the selected model's state_dict; reuse its training scalers.
++    """
++    for key, value in (("epochs", epochs), ("batch_size", batch_size), ("patience", patience)):
++        if key in ("batch_size", "patience") and value is None:
++            continue
++        if isinstance(value, bool) or not isinstance(value, (int, np.integer)) or value < 1:
++            raise ValueError(f"{key} must be a positive integer.")
++    if patience is not None and validation is None:
++        raise ValueError("patience requires a validation split.")
++    if not np.isfinite(learning_rate) or learning_rate <= 0:
++        raise ValueError("learning_rate must be positive and finite.")
++    for key, value in (("lambda_sim", lambda_sim), ("evidential_coef", evidential_coef)):
++        if not np.isfinite(value) or value < 0:
++            raise ValueError(f"{key} must be nonnegative and finite.")
++    seed_everything(seed)
++    rng = np.random.default_rng(seed)
++    model.to(device)
++    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
++    loss_fn = EvidentialRegressionLoss(coef=evidential_coef)
++    history, best_value, best_state = TrainingHistory(), float("inf"), None
++    for epoch in range(1, epochs + 1):
++        history.train_loss.append(_epoch(model, train, batch_size, loss_fn, lambda_sim, optimizer, rng))
++        if validation is None:
++            history.best_epoch = epoch
++            continue
++        value = _epoch(model, validation, batch_size, loss_fn, lambda_sim)
++        history.val_loss.append(value)
++        if value < best_value:
++            best_value, history.best_epoch = value, epoch
++            best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
++        elif patience is not None and epoch - history.best_epoch >= patience:
++            break
++    if best_state is not None:
++        model.load_state_dict(best_state)
++    model.eval()
++    if checkpoint_path is not None:
++        path = Path(checkpoint_path)
++        path.parent.mkdir(parents=True, exist_ok=True)
++        torch.save({k: v.detach().cpu() for k, v in model.state_dict().items()}, path)
++    return history
++
++
++def predict_frame(model, split, prepared, *, batch_size=128, device=None):
++    """Predict every input row, including those without labels; use original units.
++
++    The frame follows `split.frame` order. Every two-stage row includes the
++    vector `s_corrected` (in `prepared.source_names` order), a named
++    `corrected_<source>`, and `delta_<source>` = corrected minus the input
++    source actually used after preprocessing. NIG beta and all three
++    variances are in squared target units; nu and alpha are dimensionless.
++    """
++    if isinstance(batch_size, bool) or not isinstance(batch_size, (int, np.integer)) or batch_size < 1:
++        raise ValueError("batch_size must be a positive integer.")
++    if device is not None:
++        model.to(device)
++    device = next(model.parameters()).device
++    frame = split.frame.copy()
++    n = len(frame)
++    params = np.empty((n, 4 if model.evidential else 1), dtype=float)
++    seen = np.zeros(n, dtype=bool)
++    if model.two_stage:
++        names = tuple(prepared.source_names)
++        stats = source_sum_scaler_params(prepared.feature_scaler, prepared.target_scaler, len(names))
++        for key, value in stats.items():
++            saved = getattr(model, key).detach().cpu().numpy().ravel()
++            expected = np.asarray(value).reshape(-1)
++            if saved.shape != expected.shape or not np.allclose(saved, expected, rtol=1e-6, atol=1e-7):
++                raise ValueError("Source/target scales differ from the fitted model. "
++                                 "Use the preprocessor fitted on its training split.")
++        corrected, original = (np.empty((n, len(names))) for _ in range(2))
++    was_training = model.training
++    model.eval()
++    try:
++        with torch.inference_mode():
++            for key, ix, tensors in _batches(split, batch_size):
++                positions = np.asarray(split.groups[key]["row_positions"])[ix].reshape(-1)
++                if (not np.issubdtype(positions.dtype, np.integer) or np.any(positions < 0)
++                        or np.any(positions >= n) or len(np.unique(positions)) != len(positions)
++                        or np.any(seen[positions])):
++                    raise ValueError("Invalid or duplicate prediction row positions.")
++                seen[positions] = True
++                inputs = [x.to(device) for x in tensors[:-1]]
++                parts, sc, _ = _unpack(model, model(*inputs))
++                params[positions] = np.column_stack([p.cpu().numpy().reshape(-1) for p in parts])
++                if model.two_stage:
++                    k = len(names)
++                    corrected[positions] = sc.cpu().numpy().reshape(-1, k)
++                    original[positions] = inputs[0][..., :k].cpu().numpy().reshape(-1, k)
++    finally:
++        model.train(was_training)
++    if not n or not seen.all() or not np.isfinite(params).all():
++        raise ValueError("Empty split, incomplete row coverage, or nonfinite predictions.")
++    target_scaler = prepared.target_scaler
++    frame["pred"] = target_scaler.inverse_transform(params[:, :1]).ravel()
++    if model.evidential:
++        frame["nu"], frame["alpha"] = params[:, 1], params[:, 2]
++        frame["beta"] = params[:, 3] * affine_inverse_scale(target_scaler, 1)[0] ** 2
++        _, a, e, total = nig_uncertainties(frame["pred"], frame["nu"], frame["alpha"], frame["beta"])
++        frame["aleatoric_variance"], frame["epistemic_variance"], frame["total_variance"] = a, e, total
++    if model.two_stage:
++        source_scaler = prepared.feature_scaler
++        scale, center = source_scaler.scale_[:len(names)], source_scaler.mean_[:len(names)]
++        delta = (corrected - original) * scale
++        corrected = corrected * scale + center
++        if not np.isfinite(corrected).all() or not np.isfinite(delta).all():
++            raise ValueError("Nonfinite source contributions.")
++        frame["s_corrected"] = list(corrected)
++        for k, name in enumerate(names):
++            frame[f"corrected_{name}"] = corrected[:, k]
++            frame[f"delta_{name}"] = delta[:, k]
++    return frame
++
++
++def regression_metrics(frame, target_col="pm25"):
++    """Scalar point metrics in physical units, scored only on observed labels."""
++    y = frame[target_col].to_numpy(dtype=float)
++    pred = frame["pred"].to_numpy(dtype=float)
++    if not np.isfinite(pred).all():
++        raise ValueError("Nonfinite predictions cannot be scored.")
++    valid = np.isfinite(y)
++    if not valid.any():
++        raise ValueError("No observed test targets are available for scoring.")
++    y, residual = y[valid], pred[valid] - y[valid]
++    sse, sst = np.sum(residual**2), np.sum((y - np.mean(y))**2)
++    return {"n_observed": int(valid.sum()), "rmse": float(np.sqrt(np.mean(residual**2))),
++            "mae": float(np.mean(np.abs(residual))), "r2": float(1 - sse/sst) if sst > 0 else np.nan}
+diff --git a/notebooks/README.md b/notebooks/README.md
+index b523192..a7e3fda 100644
+--- a/notebooks/README.md
++++ b/notebooks/README.md
+@@ -25,6 +25,11 @@ are preserved; the reference snapshots in `legacy/` are unchanged.
+ 
+ ## Install and run
+ 
++The five [PM2.5 notebooks](../PM25_REGRESSION.md) each have a separate model
++configuration and expect the station-level CSV specified in that guide. They
++are extensions for the supplied PM2.5 reference models and do not change the
++authors' Cabauw/precipitation examples above.
++
+ Follow the Python 3.11 / PyTorch CPU Conda setup in the main README. The weather
+ notebooks require the `data` extra; Keras notebooks also require `keras`. The
+ original balanced Keras classifier needs `imbalanced-learn`:
+diff --git a/notebooks/cnn1d_regression_torch.ipynb b/notebooks/cnn1d_regression_torch.ipynb
+new file mode 100644
+index 0000000..aa1fe41
+--- /dev/null
++++ b/notebooks/cnn1d_regression_torch.ipynb
+@@ -0,0 +1,254 @@
++{
++ "cells": [
++  {
++   "cell_type": "markdown",
++   "id": "f49a3314a454",
++   "metadata": {},
++   "source": [
++    "# CNN1D: daily PM2.5 at held-out stations\n",
++    "\n",
++    "A causal convolution predicts one total concentration at each station and day. All 15 predictors, including the land-use columns, are supplied as channels. With kernels 7, 5 and 3, an output can use up to 13 days of inputs, including its own day.\n",
++    "\n",
++    "Use your **real station-level PM2.5 CSV** with the columns below. The CSV was not included with the supplied Python reference files. Set `MILES_GUESS_PM25_CSV` to its path, or edit `data.csv_path` in `config/cnn1d_regression_torch.yml`. The bundled Cabauw friction-velocity CSV cannot be used for this task.\n",
++    "\n",
++    "The configuration enables evidential regression. We train on one set of stations, select the epoch on a second set and evaluate once on the held-out test stations. The prediction is a daily estimate given the available predictors for that day; the split assesses spatial generalization, not forecasting into future years."
++   ]
++  },
++  {
++   "cell_type": "markdown",
++   "id": "2198ad4967d4",
++   "metadata": {},
++   "source": [
++    "### 1. Load the matching configuration\n",
++    "\n",
++    "From the unpacked project, install the Torch and notebook extras in your Python 3.11 environment (`python -m pip install -e \".[torch,notebooks]\"`). Start Jupyter in the repository or its `notebooks` directory. The configuration defaults to CPU and specifies the optimizer settings, maximum epochs, patience and layer widths."
++   ]
++  },
++  {
++   "cell_type": "code",
++   "id": "5c349818e93f",
++   "metadata": {},
++   "source": [
++    "from pathlib import Path\n",
++    "import json\n",
++    "import os\n",
++    "\n",
++    "import matplotlib.pyplot as plt\n",
++    "import numpy as np\n",
++    "import pandas as pd\n",
++    "import torch\n",
++    "import yaml\n",
++    "from IPython.display import display\n",
++    "from scipy.stats import t as student_t\n",
++    "from mlguess.torch.models import seed_everything\n",
++    "from mlguess.torch.nn_data import load_pm25_data, prepare_pm25\n",
++    "from mlguess.torch.nn_training import build_model, fit_model, predict_frame, regression_metrics\n",
++    "\n",
++    "CONFIG_NAME = \"cnn1d_regression_torch.yml\"\n",
++    "ROOT = next((p for p in (Path.cwd(), *Path.cwd().parents)\n",
++    "             if (p / \"config\" / CONFIG_NAME).is_file()), None)\n",
++    "if ROOT is None:\n",
++    "    raise FileNotFoundError(f\"Open this notebook from the project containing config/{CONFIG_NAME}.\")\n",
++    "with (ROOT / \"config\" / CONFIG_NAME).open(encoding=\"utf-8\") as f:\n",
++    "    cfg = yaml.safe_load(f)\n",
++    "assert cfg[\"model\"][\"name\"] == \"CNN1D\"\n",
++    "train_cfg = cfg[\"training\"]\n",
++    "if train_cfg[\"device\"] == \"cpu\":\n",
++    "    torch.set_num_threads(cfg[\"runtime\"][\"cpu_threads\"])\n",
++    "seed_everything(train_cfg[\"seed\"])  # also seed the initial model weights\n",
++    "print(cfg[\"model\"], train_cfg)"
++   ],
++   "execution_count": null,
++   "outputs": []
++  },
++  {
++   "cell_type": "markdown",
++   "id": "66ca38681e80",
++   "metadata": {},
++   "source": [
++    "### 2. Load and split station observations\n",
++    "\n",
++    "Supply one row per station and day. Use the same concentration units (µg/m³) for the PM2.5 target and CMAQ sources. The three source columns must remain in the reference order; `aod` is a predictor, **not a fourth additive source**.\n",
++    "\n",
++    "| Contents | CSV columns |\n",
++    "|---|---|\n",
++    "| Station, day and target | `stcode`, `date` (YYYY-MM-DD), `region5`, `pm25` (`lat` and `lon` are optional metadata) |\n",
++    "| CMAQ source estimates | `cmaq_pm25_bb`, `cmaq_pm25_anthro`, `cmaq_pm25_othr` |\n",
++    "| AOD and weather | `aod`, `wrf_pbl`, `wrf_temp`, `wrf_wspd`, `wrf_rh` |\n",
++    "| Land use and station descriptors | `population`, `elevation`, `builtup`, `rice`, `forest`, `minor_road_length`, `major_road_length` |\n",
++    "\n",
++    "The reference split is by station within region, with singleton regions reserved for training. Use enough stations for nonempty training, validation and test partitions. Scalers are fitted on training data only. Inputs must be finite; handle missing predictors using a treatment fitted on training data. Missing target observations are excluded from losses and metrics."
++   ]
++  },
++  {
++   "cell_type": "code",
++   "id": "04b9c782a0e9",
++   "metadata": {},
++   "source": [
++    "csv_path = Path(os.environ.get(\"MILES_GUESS_PM25_CSV\", cfg[\"data\"][\"csv_path\"])).expanduser()\n",
++    "if not csv_path.is_absolute():\n",
++    "    csv_path = ROOT / csv_path\n",
++    "if not csv_path.is_file():\n",
++    "    raise FileNotFoundError(f\"Station PM2.5 CSV not found: {csv_path}. Set MILES_GUESS_PM25_CSV \"\n",
++    "                            \"or edit data.csv_path in the YAML, then rerun this cell.\")\n",
++    "split_args = {key: cfg[\"data\"][key] for key in (\"seed\", \"test_size\", \"val_size\")}\n",
++    "train_df, val_df, test_df = load_pm25_data(csv_path, split_val=True, **split_args)\n",
++    "parts = {\"training\": train_df, \"validation\": val_df, \"test\": test_df}\n",
++    "display(pd.DataFrame({s: {\"stations\": f.stcode.nunique(), \"rows\": len(f),\n",
++    "                          \"observed targets\": f.pm25.notna().sum()}\n",
++    "                      for s, f in parts.items()}).T)"
++   ],
++   "execution_count": null,
++   "outputs": []
++  },
++  {
++   "cell_type": "markdown",
++   "id": "d40f259a86f0",
++   "metadata": {},
++   "source": [
++    "### 3. Prepare the inputs and initialize the model\n",
++    "\n",
++    "For each station the processor sorts by date, keeps rows with missing labels, and splits at missing daily dates. Contiguous series of the same length T are batched together; no convolution crosses a station or date gap. Each group supplies `[N, T, 15]` inputs and `[N, T]` targets. The left-padded convolutions use only current and preceding inputs."
++   ]
++  },
++  {
++   "cell_type": "code",
++   "id": "541943e88f26",
++   "metadata": {},
++   "source": [
++    "prepared = prepare_pm25(train_df, val_df, test_df, model_name=cfg[\"model\"][\"name\"])\n",
++    "model = build_model(cfg[\"model\"][\"name\"], cfg[\"model\"][\"kwargs\"], prepared)\n",
++    "first_group = next(iter(prepared.train.tensors.values()))\n",
++    "print(\"First training group's input(s) and targets:\", [tuple(x.shape) for x in first_group])\n",
++    "print(f\"{type(model).__name__}: {sum(p.numel() for p in model.parameters()):,} parameters\")"
++   ],
++   "execution_count": null,
++   "outputs": []
++  },
++  {
++   "cell_type": "markdown",
++   "id": "f6d1e9390ab3",
++   "metadata": {},
++   "source": [
++    "### 4. Train and select the epoch on validation stations\n",
++    "\n",
++    "The evidential head learns a Normal–Inverse-Gamma (NIG) distribution for the total target. The `training` section of the configuration controls its evidence regularization. The lowest validation-loss state is restored before testing. The notebook saves that state and the fitted scalers and feature order together. For inference on new stations, reload `PM25Preprocessor.load(out / \"preprocessor.json\")` from `mlguess.torch.nn_data` and use its `transform()` method with the saved weights; do not refit the scalers."
++   ]
++  },
++  {
++   "cell_type": "code",
++   "id": "f574a9c280cb",
++   "metadata": {},
++   "source": [
++    "out = ROOT / cfg[\"runtime\"][\"output_dir\"]\n",
++    "out.mkdir(parents=True, exist_ok=True)\n",
++    "history = fit_model(model, prepared.train, prepared.validation, **train_cfg,\n",
++    "                    checkpoint_path=out / \"best_state.pt\")\n",
++    "prepared.save(out / \"preprocessor.json\")\n",
++    "print(f\"Best epoch: {history.best_epoch}; epochs run: {history.epochs_run}\")\n",
++    "epochs = np.arange(1, history.epochs_run + 1)\n",
++    "fig, ax = plt.subplots(figsize=(7, 3))\n",
++    "ax.plot(epochs, history.train_loss, label=\"Training stations\")\n",
++    "ax.plot(epochs, history.val_loss, label=\"Validation stations\")\n",
++    "ax.axvline(history.best_epoch, color=\"0.4\", ls=\":\", label=\"Selected epoch\")\n",
++    "ax.set(xlabel=\"Epoch\", ylabel=\"Objective\")\n",
++    "ax.legend()\n",
++    "fig.tight_layout()\n",
++    "plt.show()"
++   ],
++   "execution_count": null,
++   "outputs": []
++  },
++  {
++   "cell_type": "markdown",
++   "id": "b6680f074209",
++   "metadata": {},
++   "source": [
++    "### 5. Evaluate all held-out stations\n",
++    "\n",
++    "For each observation the predicted location is $\\gamma_n$. In the MILES-GUESS paper's notation the aleatoric variance is $\\mathbb{E}[\\sigma_n^2]=\\beta_n/(\\alpha_n-1)$ and the epistemic variance is $\\operatorname{Var}(\\mu_n)=\\beta_n/[\\nu_n(\\alpha_n-1)]$. We use the full Student-$t$ predictive distribution to calculate a central 95% prediction interval: degrees of freedom $2\\alpha_n$, location $\\gamma_n$ and scale squared $\\beta_n(1+\\nu_n)/(\\alpha_n\\nu_n)$. This interval concerns a single PM2.5 measurement. The collector returns predictions in µg/m³ and variances in (µg/m³)²."
++   ]
++  },
++  {
++   "cell_type": "code",
++   "id": "097ae1d2924d",
++   "metadata": {},
++   "source": [
++    "points = predict_frame(model, prepared.test, prepared, batch_size=cfg[\"runtime\"][\"prediction_batch_size\"],\n",
++    "                       device=train_cfg[\"device\"]).sort_values([\"stcode\", \"date\"]).reset_index(drop=True)\n",
++    "metrics = regression_metrics(points, target_col=\"pm25\")\n",
++    "if {\"nu\", \"alpha\", \"beta\"}.issubset(points.columns):\n",
++    "    nu, alpha, beta = (points[k].to_numpy() for k in (\"nu\", \"alpha\", \"beta\"))\n",
++    "    scale = np.sqrt(beta * (1.0 + nu) / (alpha * nu))\n",
++    "    half = student_t.ppf(0.975, df=2.0 * alpha) * scale\n",
++    "    points[\"lower95\"] = points[\"pred\"] - half\n",
++    "    points[\"upper95\"] = points[\"pred\"] + half\n",
++    "    observed = points.loc[np.isfinite(points[\"pm25\"])]\n",
++    "    metrics[\"coverage95\"] = observed[\"pm25\"].between(observed[\"lower95\"], observed[\"upper95\"]).mean()\n",
++    "display(pd.Series(metrics, name=\"Held-out station evaluation\").to_frame())"
++   ],
++   "execution_count": null,
++   "outputs": []
++  },
++  {
++   "cell_type": "markdown",
++   "id": "bc2a7a630282",
++   "metadata": {},
++   "source": [
++    "### 6. Inspect predictions in time and save the test records\n",
++    "\n",
++    "Plot at most the first 90 calendar days for the test station with the most observed labels. The time axis preserves missing days as gaps. The station plot is illustrative; the reported metrics use **all** observed labels on the held-out stations."
++   ]
++  },
++  {
++   "cell_type": "code",
++   "id": "011974f06587",
++   "metadata": {},
++   "source": [
++    "station = points.loc[np.isfinite(points.pm25), \"stcode\"].value_counts().idxmax()\n",
++    "view = points.loc[points.stcode.eq(station)].copy()\n",
++    "view[\"date\"] = pd.to_datetime(view[\"date\"])\n",
++    "view = view.sort_values(\"date\").set_index(\"date\").asfreq(\"D\").iloc[:90]\n",
++    "fig, ax = plt.subplots(figsize=(10, 3.8))\n",
++    "if \"lower95\" in view:\n",
++    "    ax.fill_between(view.index, view.lower95, view.upper95, color=\"tab:blue\", alpha=0.16,\n",
++    "                    label=\"95% predictive interval\")\n",
++    "ax.plot(view.index, view.pred, color=\"tab:blue\", label=\"Prediction\")\n",
++    "ax.scatter(view.index, view.pm25, s=14, color=\"black\", label=\"Observed\")\n",
++    "ax.set(xlabel=\"Date\", ylabel=\"PM2.5 (µg/m³)\", title=f\"Held-out station {station}\")\n",
++    "ax.legend(loc=\"best\")\n",
++    "fig.autofmt_xdate()\n",
++    "fig.tight_layout()\n",
++    "fig.savefig(out / \"test_station.png\", dpi=150)\n",
++    "plt.show()"
++   ],
++   "execution_count": null,
++   "outputs": []
++  },
++  {
++   "cell_type": "code",
++   "id": "503dcef1121c",
++   "metadata": {},
++   "source": [
++    "points.to_csv(out / \"test_predictions.csv\", index=False)\n",
++    "pd.Series(metrics, name=\"test\").to_csv(out / \"test_metrics.csv\")\n",
++    "print(f\"Saved {len(points):,} held-out prediction records in {out}.\")"
++   ],
++   "execution_count": null,
++   "outputs": []
++  }
++ ],
++ "metadata": {
++  "kernelspec": {
++   "display_name": "Python 3 (ipykernel)",
++   "language": "python",
++   "name": "python3"
++  },
++  "language_info": {
++   "name": "python",
++   "version": "3.11"
++  }
++ },
++ "nbformat": 4,
++ "nbformat_minor": 5
++}
+diff --git a/notebooks/db_regression_torch.ipynb b/notebooks/db_regression_torch.ipynb
+new file mode 100644
+index 0000000..b695daf
+--- /dev/null
++++ b/notebooks/db_regression_torch.ipynb
+@@ -0,0 +1,254 @@
++{
++ "cells": [
++  {
++   "cell_type": "markdown",
++   "id": "1da6b4b2e426",
++   "metadata": {},
++   "source": [
++    "# DB: daily PM2.5 at held-out stations\n",
++    "\n",
++    "This **dual-branch** model processes the eight time-varying channels with a causal CNN. A second branch encodes the seven land-use values once per station; the network combines that embedding with the temporal features on each day.\n",
++    "\n",
++    "Use your **real station-level PM2.5 CSV** with the columns below. The CSV was not included with the supplied Python reference files. Set `MILES_GUESS_PM25_CSV` to its path, or edit `data.csv_path` in `config/db_regression_torch.yml`. The bundled Cabauw friction-velocity CSV cannot be used for this task.\n",
++    "\n",
++    "The configuration enables evidential regression. We train on one set of stations, select the epoch on a second set and evaluate once on the held-out test stations. The prediction is a daily estimate given the available predictors for that day; the split assesses spatial generalization, not forecasting into future years."
++   ]
++  },
++  {
++   "cell_type": "markdown",
++   "id": "08e5f2f80c9d",
++   "metadata": {},
++   "source": [
++    "### 1. Load the matching configuration\n",
++    "\n",
++    "From the unpacked project, install the Torch and notebook extras in your Python 3.11 environment (`python -m pip install -e \".[torch,notebooks]\"`). Start Jupyter in the repository or its `notebooks` directory. The configuration defaults to CPU and specifies the optimizer settings, maximum epochs, patience and layer widths."
++   ]
++  },
++  {
++   "cell_type": "code",
++   "id": "ee4bd621d1de",
++   "metadata": {},
++   "source": [
++    "from pathlib import Path\n",
++    "import json\n",
++    "import os\n",
++    "\n",
++    "import matplotlib.pyplot as plt\n",
++    "import numpy as np\n",
++    "import pandas as pd\n",
++    "import torch\n",
++    "import yaml\n",
++    "from IPython.display import display\n",
++    "from scipy.stats import t as student_t\n",
++    "from mlguess.torch.models import seed_everything\n",
++    "from mlguess.torch.nn_data import load_pm25_data, prepare_pm25\n",
++    "from mlguess.torch.nn_training import build_model, fit_model, predict_frame, regression_metrics\n",
++    "\n",
++    "CONFIG_NAME = \"db_regression_torch.yml\"\n",
++    "ROOT = next((p for p in (Path.cwd(), *Path.cwd().parents)\n",
++    "             if (p / \"config\" / CONFIG_NAME).is_file()), None)\n",
++    "if ROOT is None:\n",
++    "    raise FileNotFoundError(f\"Open this notebook from the project containing config/{CONFIG_NAME}.\")\n",
++    "with (ROOT / \"config\" / CONFIG_NAME).open(encoding=\"utf-8\") as f:\n",
++    "    cfg = yaml.safe_load(f)\n",
++    "assert cfg[\"model\"][\"name\"] == \"DB\"\n",
++    "train_cfg = cfg[\"training\"]\n",
++    "if train_cfg[\"device\"] == \"cpu\":\n",
++    "    torch.set_num_threads(cfg[\"runtime\"][\"cpu_threads\"])\n",
++    "seed_everything(train_cfg[\"seed\"])  # also seed the initial model weights\n",
++    "print(cfg[\"model\"], train_cfg)"
++   ],
++   "execution_count": null,
++   "outputs": []
++  },
++  {
++   "cell_type": "markdown",
++   "id": "3bc9e6b78243",
++   "metadata": {},
++   "source": [
++    "### 2. Load and split station observations\n",
++    "\n",
++    "Supply one row per station and day. Use the same concentration units (µg/m³) for the PM2.5 target and CMAQ sources. The three source columns must remain in the reference order; `aod` is a predictor, **not a fourth additive source**.\n",
++    "\n",
++    "| Contents | CSV columns |\n",
++    "|---|---|\n",
++    "| Station, day and target | `stcode`, `date` (YYYY-MM-DD), `region5`, `pm25` (`lat` and `lon` are optional metadata) |\n",
++    "| CMAQ source estimates | `cmaq_pm25_bb`, `cmaq_pm25_anthro`, `cmaq_pm25_othr` |\n",
++    "| AOD and weather | `aod`, `wrf_pbl`, `wrf_temp`, `wrf_wspd`, `wrf_rh` |\n",
++    "| Land use and station descriptors | `population`, `elevation`, `builtup`, `rice`, `forest`, `minor_road_length`, `major_road_length` |\n",
++    "\n",
++    "The reference split is by station within region, with singleton regions reserved for training. Use enough stations for nonempty training, validation and test partitions. Scalers are fitted on training data only. Inputs must be finite; handle missing predictors using a treatment fitted on training data. Missing target observations are excluded from losses and metrics."
++   ]
++  },
++  {
++   "cell_type": "code",
++   "id": "dea29fe2e7fb",
++   "metadata": {},
++   "source": [
++    "csv_path = Path(os.environ.get(\"MILES_GUESS_PM25_CSV\", cfg[\"data\"][\"csv_path\"])).expanduser()\n",
++    "if not csv_path.is_absolute():\n",
++    "    csv_path = ROOT / csv_path\n",
++    "if not csv_path.is_file():\n",
++    "    raise FileNotFoundError(f\"Station PM2.5 CSV not found: {csv_path}. Set MILES_GUESS_PM25_CSV \"\n",
++    "                            \"or edit data.csv_path in the YAML, then rerun this cell.\")\n",
++    "split_args = {key: cfg[\"data\"][key] for key in (\"seed\", \"test_size\", \"val_size\")}\n",
++    "train_df, val_df, test_df = load_pm25_data(csv_path, split_val=True, **split_args)\n",
++    "parts = {\"training\": train_df, \"validation\": val_df, \"test\": test_df}\n",
++    "display(pd.DataFrame({s: {\"stations\": f.stcode.nunique(), \"rows\": len(f),\n",
++    "                          \"observed targets\": f.pm25.notna().sum()}\n",
++    "                      for s, f in parts.items()}).T)"
++   ],
++   "execution_count": null,
++   "outputs": []
++  },
++  {
++   "cell_type": "markdown",
++   "id": "5cfad45c74ef",
++   "metadata": {},
++   "source": [
++    "### 3. Prepare the inputs and initialize the model\n",
++    "\n",
++    "For each station the processor sorts by date, keeps rows with missing labels, and splits at missing daily dates. Contiguous series of the same length T are batched together; no convolution crosses a station or date gap. Each group supplies `[N, T, 8]` temporal inputs, `[N, 7]` static inputs and `[N, T]` targets. Static columns must stay constant within a station."
++   ]
++  },
++  {
++   "cell_type": "code",
++   "id": "3dee11257bbe",
++   "metadata": {},
++   "source": [
++    "prepared = prepare_pm25(train_df, val_df, test_df, model_name=cfg[\"model\"][\"name\"])\n",
++    "model = build_model(cfg[\"model\"][\"name\"], cfg[\"model\"][\"kwargs\"], prepared)\n",
++    "first_group = next(iter(prepared.train.tensors.values()))\n",
++    "print(\"First training group's input(s) and targets:\", [tuple(x.shape) for x in first_group])\n",
++    "print(f\"{type(model).__name__}: {sum(p.numel() for p in model.parameters()):,} parameters\")"
++   ],
++   "execution_count": null,
++   "outputs": []
++  },
++  {
++   "cell_type": "markdown",
++   "id": "f03157bba69f",
++   "metadata": {},
++   "source": [
++    "### 4. Train and select the epoch on validation stations\n",
++    "\n",
++    "The evidential head learns a Normal–Inverse-Gamma (NIG) distribution for the total target. The `training` section of the configuration controls its evidence regularization. The lowest validation-loss state is restored before testing. The notebook saves that state and the fitted scalers and feature order together. For inference on new stations, reload `PM25Preprocessor.load(out / \"preprocessor.json\")` from `mlguess.torch.nn_data` and use its `transform()` method with the saved weights; do not refit the scalers."
++   ]
++  },
++  {
++   "cell_type": "code",
++   "id": "4d629729cbcc",
++   "metadata": {},
++   "source": [
++    "out = ROOT / cfg[\"runtime\"][\"output_dir\"]\n",
++    "out.mkdir(parents=True, exist_ok=True)\n",
++    "history = fit_model(model, prepared.train, prepared.validation, **train_cfg,\n",
++    "                    checkpoint_path=out / \"best_state.pt\")\n",
++    "prepared.save(out / \"preprocessor.json\")\n",
++    "print(f\"Best epoch: {history.best_epoch}; epochs run: {history.epochs_run}\")\n",
++    "epochs = np.arange(1, history.epochs_run + 1)\n",
++    "fig, ax = plt.subplots(figsize=(7, 3))\n",
++    "ax.plot(epochs, history.train_loss, label=\"Training stations\")\n",
++    "ax.plot(epochs, history.val_loss, label=\"Validation stations\")\n",
++    "ax.axvline(history.best_epoch, color=\"0.4\", ls=\":\", label=\"Selected epoch\")\n",
++    "ax.set(xlabel=\"Epoch\", ylabel=\"Objective\")\n",
++    "ax.legend()\n",
++    "fig.tight_layout()\n",
++    "plt.show()"
++   ],
++   "execution_count": null,
++   "outputs": []
++  },
++  {
++   "cell_type": "markdown",
++   "id": "0a8eaf5d36eb",
++   "metadata": {},
++   "source": [
++    "### 5. Evaluate all held-out stations\n",
++    "\n",
++    "For each observation the predicted location is $\\gamma_n$. In the MILES-GUESS paper's notation the aleatoric variance is $\\mathbb{E}[\\sigma_n^2]=\\beta_n/(\\alpha_n-1)$ and the epistemic variance is $\\operatorname{Var}(\\mu_n)=\\beta_n/[\\nu_n(\\alpha_n-1)]$. We use the full Student-$t$ predictive distribution to calculate a central 95% prediction interval: degrees of freedom $2\\alpha_n$, location $\\gamma_n$ and scale squared $\\beta_n(1+\\nu_n)/(\\alpha_n\\nu_n)$. This interval concerns a single PM2.5 measurement. The collector returns predictions in µg/m³ and variances in (µg/m³)²."
++   ]
++  },
++  {
++   "cell_type": "code",
++   "id": "8176b8f385ef",
++   "metadata": {},
++   "source": [
++    "points = predict_frame(model, prepared.test, prepared, batch_size=cfg[\"runtime\"][\"prediction_batch_size\"],\n",
++    "                       device=train_cfg[\"device\"]).sort_values([\"stcode\", \"date\"]).reset_index(drop=True)\n",
++    "metrics = regression_metrics(points, target_col=\"pm25\")\n",
++    "if {\"nu\", \"alpha\", \"beta\"}.issubset(points.columns):\n",
++    "    nu, alpha, beta = (points[k].to_numpy() for k in (\"nu\", \"alpha\", \"beta\"))\n",
++    "    scale = np.sqrt(beta * (1.0 + nu) / (alpha * nu))\n",
++    "    half = student_t.ppf(0.975, df=2.0 * alpha) * scale\n",
++    "    points[\"lower95\"] = points[\"pred\"] - half\n",
++    "    points[\"upper95\"] = points[\"pred\"] + half\n",
++    "    observed = points.loc[np.isfinite(points[\"pm25\"])]\n",
++    "    metrics[\"coverage95\"] = observed[\"pm25\"].between(observed[\"lower95\"], observed[\"upper95\"]).mean()\n",
++    "display(pd.Series(metrics, name=\"Held-out station evaluation\").to_frame())"
++   ],
++   "execution_count": null,
++   "outputs": []
++  },
++  {
++   "cell_type": "markdown",
++   "id": "52bf7b93bdbf",
++   "metadata": {},
++   "source": [
++    "### 6. Inspect predictions in time and save the test records\n",
++    "\n",
++    "Plot at most the first 90 calendar days for the test station with the most observed labels. The time axis preserves missing days as gaps. The station plot is illustrative; the reported metrics use **all** observed labels on the held-out stations."
++   ]
++  },
++  {
++   "cell_type": "code",
++   "id": "14964e6ab2c2",
++   "metadata": {},
++   "source": [
++    "station = points.loc[np.isfinite(points.pm25), \"stcode\"].value_counts().idxmax()\n",
++    "view = points.loc[points.stcode.eq(station)].copy()\n",
++    "view[\"date\"] = pd.to_datetime(view[\"date\"])\n",
++    "view = view.sort_values(\"date\").set_index(\"date\").asfreq(\"D\").iloc[:90]\n",
++    "fig, ax = plt.subplots(figsize=(10, 3.8))\n",
++    "if \"lower95\" in view:\n",
++    "    ax.fill_between(view.index, view.lower95, view.upper95, color=\"tab:blue\", alpha=0.16,\n",
++    "                    label=\"95% predictive interval\")\n",
++    "ax.plot(view.index, view.pred, color=\"tab:blue\", label=\"Prediction\")\n",
++    "ax.scatter(view.index, view.pm25, s=14, color=\"black\", label=\"Observed\")\n",
++    "ax.set(xlabel=\"Date\", ylabel=\"PM2.5 (µg/m³)\", title=f\"Held-out station {station}\")\n",
++    "ax.legend(loc=\"best\")\n",
++    "fig.autofmt_xdate()\n",
++    "fig.tight_layout()\n",
++    "fig.savefig(out / \"test_station.png\", dpi=150)\n",
++    "plt.show()"
++   ],
++   "execution_count": null,
++   "outputs": []
++  },
++  {
++   "cell_type": "code",
++   "id": "7f2e3b05797f",
++   "metadata": {},
++   "source": [
++    "points.to_csv(out / \"test_predictions.csv\", index=False)\n",
++    "pd.Series(metrics, name=\"test\").to_csv(out / \"test_metrics.csv\")\n",
++    "print(f\"Saved {len(points):,} held-out prediction records in {out}.\")"
++   ],
++   "execution_count": null,
++   "outputs": []
++  }
++ ],
++ "metadata": {
++  "kernelspec": {
++   "display_name": "Python 3 (ipykernel)",
++   "language": "python",
++   "name": "python3"
++  },
++  "language_info": {
++   "name": "python",
++   "version": "3.11"
++  }
++ },
++ "nbformat": 4,
++ "nbformat_minor": 5
++}
+diff --git a/notebooks/two_stage_cnn1d_regression_torch.ipynb b/notebooks/two_stage_cnn1d_regression_torch.ipynb
+new file mode 100644
+index 0000000..68fe5a5
+--- /dev/null
++++ b/notebooks/two_stage_cnn1d_regression_torch.ipynb
+@@ -0,0 +1,298 @@
++{
++ "cells": [
++  {
++   "cell_type": "markdown",
++   "id": "503531765fb2",
++   "metadata": {},
++   "source": [
++    "# TwoStageCNN1D: daily PM2.5 at held-out stations\n",
++    "\n",
++    "A shared **causal CNN** encodes the 15 daily predictors at one station. Three source-specific heads correct the biomass-burning, anthropogenic and other CMAQ inputs per day. The model sums these corrected concentrations to predict the total.\n",
++    "\n",
++    "Use your **real station-level PM2.5 CSV** with the columns below. The CSV was not included with the supplied Python reference files. Set `MILES_GUESS_PM25_CSV` to its path, or edit `data.csv_path` in `config/two_stage_cnn1d_regression_torch.yml`. The bundled Cabauw friction-velocity CSV cannot be used for this task.\n",
++    "\n",
++    "The configuration enables evidential regression. We train on one set of stations, select the epoch on a second set and evaluate once on the held-out test stations. The prediction is a daily estimate given the available predictors for that day; the split assesses spatial generalization, not forecasting into future years."
++   ]
++  },
++  {
++   "cell_type": "markdown",
++   "id": "5964a04bf3c6",
++   "metadata": {},
++   "source": [
++    "### 1. Load the matching configuration\n",
++    "\n",
++    "From the unpacked project, install the Torch and notebook extras in your Python 3.11 environment (`python -m pip install -e \".[torch,notebooks]\"`). Start Jupyter in the repository or its `notebooks` directory. The configuration defaults to CPU and specifies the optimizer settings, maximum epochs, patience and layer widths."
++   ]
++  },
++  {
++   "cell_type": "code",
++   "id": "9ff701f0b3e0",
++   "metadata": {},
++   "source": [
++    "from pathlib import Path\n",
++    "import json\n",
++    "import os\n",
++    "\n",
++    "import matplotlib.pyplot as plt\n",
++    "import numpy as np\n",
++    "import pandas as pd\n",
++    "import torch\n",
++    "import yaml\n",
++    "from IPython.display import display\n",
++    "from scipy.stats import t as student_t\n",
++    "from mlguess.torch.models import seed_everything\n",
++    "from mlguess.torch.nn_data import load_pm25_data, prepare_pm25\n",
++    "from mlguess.torch.nn_training import build_model, fit_model, predict_frame, regression_metrics\n",
++    "\n",
++    "CONFIG_NAME = \"two_stage_cnn1d_regression_torch.yml\"\n",
++    "ROOT = next((p for p in (Path.cwd(), *Path.cwd().parents)\n",
++    "             if (p / \"config\" / CONFIG_NAME).is_file()), None)\n",
++    "if ROOT is None:\n",
++    "    raise FileNotFoundError(f\"Open this notebook from the project containing config/{CONFIG_NAME}.\")\n",
++    "with (ROOT / \"config\" / CONFIG_NAME).open(encoding=\"utf-8\") as f:\n",
++    "    cfg = yaml.safe_load(f)\n",
++    "assert cfg[\"model\"][\"name\"] == \"TwoStageCNN1D\"\n",
++    "train_cfg = cfg[\"training\"]\n",
++    "if train_cfg[\"device\"] == \"cpu\":\n",
++    "    torch.set_num_threads(cfg[\"runtime\"][\"cpu_threads\"])\n",
++    "seed_everything(train_cfg[\"seed\"])  # also seed the initial model weights\n",
++    "print(cfg[\"model\"], train_cfg)"
++   ],
++   "execution_count": null,
++   "outputs": []
++  },
++  {
++   "cell_type": "markdown",
++   "id": "042dc925a472",
++   "metadata": {},
++   "source": [
++    "### 2. Load and split station observations\n",
++    "\n",
++    "Supply one row per station and day. Use the same concentration units (µg/m³) for the PM2.5 target and CMAQ sources. The three source columns must remain in the reference order; `aod` is a predictor, **not a fourth additive source**.\n",
++    "\n",
++    "| Contents | CSV columns |\n",
++    "|---|---|\n",
++    "| Station, day and target | `stcode`, `date` (YYYY-MM-DD), `region5`, `pm25` (`lat` and `lon` are optional metadata) |\n",
++    "| CMAQ source estimates | `cmaq_pm25_bb`, `cmaq_pm25_anthro`, `cmaq_pm25_othr` |\n",
++    "| AOD and weather | `aod`, `wrf_pbl`, `wrf_temp`, `wrf_wspd`, `wrf_rh` |\n",
++    "| Land use and station descriptors | `population`, `elevation`, `builtup`, `rice`, `forest`, `minor_road_length`, `major_road_length` |\n",
++    "\n",
++    "The reference split is by station within region, with singleton regions reserved for training. Use enough stations for nonempty training, validation and test partitions. Scalers are fitted on training data only. Inputs must be finite; handle missing predictors using a treatment fitted on training data. Missing target observations are excluded from losses and metrics."
++   ]
++  },
++  {
++   "cell_type": "code",
++   "id": "3c38e4edd2ad",
++   "metadata": {},
++   "source": [
++    "csv_path = Path(os.environ.get(\"MILES_GUESS_PM25_CSV\", cfg[\"data\"][\"csv_path\"])).expanduser()\n",
++    "if not csv_path.is_absolute():\n",
++    "    csv_path = ROOT / csv_path\n",
++    "if not csv_path.is_file():\n",
++    "    raise FileNotFoundError(f\"Station PM2.5 CSV not found: {csv_path}. Set MILES_GUESS_PM25_CSV \"\n",
++    "                            \"or edit data.csv_path in the YAML, then rerun this cell.\")\n",
++    "split_args = {key: cfg[\"data\"][key] for key in (\"seed\", \"test_size\", \"val_size\")}\n",
++    "train_df, val_df, test_df = load_pm25_data(csv_path, split_val=True, **split_args)\n",
++    "parts = {\"training\": train_df, \"validation\": val_df, \"test\": test_df}\n",
++    "display(pd.DataFrame({s: {\"stations\": f.stcode.nunique(), \"rows\": len(f),\n",
++    "                          \"observed targets\": f.pm25.notna().sum()}\n",
++    "                      for s, f in parts.items()}).T)"
++   ],
++   "execution_count": null,
++   "outputs": []
++  },
++  {
++   "cell_type": "markdown",
++   "id": "a9e566979d61",
++   "metadata": {},
++   "source": [
++    "### 3. Prepare the inputs and initialize the model\n",
++    "\n",
++    "For each station the processor sorts by date, keeps rows with missing labels, and splits at missing daily dates. Contiguous series of the same length T are batched together; no convolution crosses a station or date gap. Each group supplies `[N, T, 15]` inputs and `[N, T]` targets. The left-padded convolutions use only current and preceding inputs. The builder also supplies the training source/target scaler statistics. The model sums corrected sources in physical units; `threshold: null` gives each source a physical lower bound of zero."
++   ]
++  },
++  {
++   "cell_type": "code",
++   "id": "4a8c9a422622",
++   "metadata": {},
++   "source": [
++    "prepared = prepare_pm25(train_df, val_df, test_df, model_name=cfg[\"model\"][\"name\"])\n",
++    "model = build_model(cfg[\"model\"][\"name\"], cfg[\"model\"][\"kwargs\"], prepared)\n",
++    "first_group = next(iter(prepared.train.tensors.values()))\n",
++    "print(\"First training group's input(s) and targets:\", [tuple(x.shape) for x in first_group])\n",
++    "print(f\"{type(model).__name__}: {sum(p.numel() for p in model.parameters()):,} parameters\")"
++   ],
++   "execution_count": null,
++   "outputs": []
++  },
++  {
++   "cell_type": "markdown",
++   "id": "5c295522c935",
++   "metadata": {},
++   "source": [
++    "### 4. Train and select the epoch on validation stations\n",
++    "\n",
++    "The evidential head learns a Normal–Inverse-Gamma (NIG) distribution for the total target. The `training` section of the configuration controls its evidence regularization. The two-stage objective also uses the reference cosine-diversity penalty on the learned source corrections (`lambda_sim`). The lowest validation-loss state is restored before testing. The notebook saves that state and the fitted scalers and feature order together. For inference on new stations, reload `PM25Preprocessor.load(out / \"preprocessor.json\")` from `mlguess.torch.nn_data` and use its `transform()` method with the saved weights; do not refit the scalers."
++   ]
++  },
++  {
++   "cell_type": "code",
++   "id": "9c9ce853444b",
++   "metadata": {},
++   "source": [
++    "out = ROOT / cfg[\"runtime\"][\"output_dir\"]\n",
++    "out.mkdir(parents=True, exist_ok=True)\n",
++    "history = fit_model(model, prepared.train, prepared.validation, **train_cfg,\n",
++    "                    checkpoint_path=out / \"best_state.pt\")\n",
++    "prepared.save(out / \"preprocessor.json\")\n",
++    "print(f\"Best epoch: {history.best_epoch}; epochs run: {history.epochs_run}\")\n",
++    "epochs = np.arange(1, history.epochs_run + 1)\n",
++    "fig, ax = plt.subplots(figsize=(7, 3))\n",
++    "ax.plot(epochs, history.train_loss, label=\"Training stations\")\n",
++    "ax.plot(epochs, history.val_loss, label=\"Validation stations\")\n",
++    "ax.axvline(history.best_epoch, color=\"0.4\", ls=\":\", label=\"Selected epoch\")\n",
++    "ax.set(xlabel=\"Epoch\", ylabel=\"Objective\")\n",
++    "ax.legend()\n",
++    "fig.tight_layout()\n",
++    "plt.show()"
++   ],
++   "execution_count": null,
++   "outputs": []
++  },
++  {
++   "cell_type": "markdown",
++   "id": "a66eac841f8c",
++   "metadata": {},
++   "source": [
++    "### 5. Evaluate all held-out stations\n",
++    "\n",
++    "For each observation the predicted location is $\\gamma_n$. In the MILES-GUESS paper's notation the aleatoric variance is $\\mathbb{E}[\\sigma_n^2]=\\beta_n/(\\alpha_n-1)$ and the epistemic variance is $\\operatorname{Var}(\\mu_n)=\\beta_n/[\\nu_n(\\alpha_n-1)]$. We use the full Student-$t$ predictive distribution to calculate a central 95% prediction interval: degrees of freedom $2\\alpha_n$, location $\\gamma_n$ and scale squared $\\beta_n(1+\\nu_n)/(\\alpha_n\\nu_n)$. This interval concerns a single PM2.5 measurement. The collector returns predictions in µg/m³ and variances in (µg/m³)²."
++   ]
++  },
++  {
++   "cell_type": "code",
++   "id": "9f8ea65ecbb2",
++   "metadata": {},
++   "source": [
++    "points = predict_frame(model, prepared.test, prepared, batch_size=cfg[\"runtime\"][\"prediction_batch_size\"],\n",
++    "                       device=train_cfg[\"device\"]).sort_values([\"stcode\", \"date\"]).reset_index(drop=True)\n",
++    "metrics = regression_metrics(points, target_col=\"pm25\")\n",
++    "if {\"nu\", \"alpha\", \"beta\"}.issubset(points.columns):\n",
++    "    nu, alpha, beta = (points[k].to_numpy() for k in (\"nu\", \"alpha\", \"beta\"))\n",
++    "    scale = np.sqrt(beta * (1.0 + nu) / (alpha * nu))\n",
++    "    half = student_t.ppf(0.975, df=2.0 * alpha) * scale\n",
++    "    points[\"lower95\"] = points[\"pred\"] - half\n",
++    "    points[\"upper95\"] = points[\"pred\"] + half\n",
++    "    observed = points.loc[np.isfinite(points[\"pm25\"])]\n",
++    "    metrics[\"coverage95\"] = observed[\"pm25\"].between(observed[\"lower95\"], observed[\"upper95\"]).mean()\n",
++    "display(pd.Series(metrics, name=\"Held-out station evaluation\").to_frame())"
++   ],
++   "execution_count": null,
++   "outputs": []
++  },
++  {
++   "cell_type": "markdown",
++   "id": "e2960cd40daf",
++   "metadata": {},
++   "source": [
++    "**Check the source accounting.** `pred` is the total. For each row `s_corrected` is a vector of three concentrations in `prepared.source_names` order. The corresponding `corrected_<source>` columns retain the same numbers in separate fields. These are learned contributions constrained by the observed total. Without independent source-resolved observations, agreement with total PM2.5 does not validate each attribution."
++   ]
++  },
++  {
++   "cell_type": "code",
++   "id": "994e64a01171",
++   "metadata": {},
++   "source": [
++    "sources = list(prepared.source_names)\n",
++    "corrected_cols = [f\"corrected_{s}\" for s in sources]\n",
++    "corrected = np.stack(points[\"s_corrected\"].to_numpy())\n",
++    "np.testing.assert_allclose(corrected, points[corrected_cols].to_numpy(), rtol=1e-5, atol=1e-5)\n",
++    "np.testing.assert_allclose(corrected.sum(axis=1), points[\"pred\"], rtol=1e-5, atol=1e-4)\n",
++    "display(points[[\"stcode\", \"date\", \"pm25\", \"pred\", *corrected_cols]].head())"
++   ],
++   "execution_count": null,
++   "outputs": []
++  },
++  {
++   "cell_type": "markdown",
++   "id": "235c1a115091",
++   "metadata": {},
++   "source": [
++    "### 6. Inspect predictions in time and save the test records\n",
++    "\n",
++    "Plot at most the first 90 calendar days for the test station with the most observed labels. The time axis preserves missing days as gaps. The station plot is illustrative; the reported metrics use **all** observed labels on the held-out stations."
++   ]
++  },
++  {
++   "cell_type": "code",
++   "id": "ab53f83988da",
++   "metadata": {},
++   "source": [
++    "station = points.loc[np.isfinite(points.pm25), \"stcode\"].value_counts().idxmax()\n",
++    "view = points.loc[points.stcode.eq(station)].copy()\n",
++    "view[\"date\"] = pd.to_datetime(view[\"date\"])\n",
++    "view = view.sort_values(\"date\").set_index(\"date\").asfreq(\"D\").iloc[:90]\n",
++    "fig, ax = plt.subplots(figsize=(10, 3.8))\n",
++    "if \"lower95\" in view:\n",
++    "    ax.fill_between(view.index, view.lower95, view.upper95, color=\"tab:blue\", alpha=0.16,\n",
++    "                    label=\"95% predictive interval\")\n",
++    "ax.plot(view.index, view.pred, color=\"tab:blue\", label=\"Prediction\")\n",
++    "ax.scatter(view.index, view.pm25, s=14, color=\"black\", label=\"Observed\")\n",
++    "ax.set(xlabel=\"Date\", ylabel=\"PM2.5 (µg/m³)\", title=f\"Held-out station {station}\")\n",
++    "ax.legend(loc=\"best\")\n",
++    "fig.autofmt_xdate()\n",
++    "fig.tight_layout()\n",
++    "fig.savefig(out / \"test_station.png\", dpi=150)\n",
++    "plt.show()"
++   ],
++   "execution_count": null,
++   "outputs": []
++  },
++  {
++   "cell_type": "code",
++   "id": "22790a182845",
++   "metadata": {},
++   "source": [
++    "fig, ax = plt.subplots(figsize=(10, 3.8))\n",
++    "ax.stackplot(view.index, *(view[c].to_numpy() for c in corrected_cols), labels=sources, alpha=0.75)\n",
++    "ax.plot(view.index, view.pred, color=\"black\", lw=1.25, label=\"Predicted total\")\n",
++    "ax.set(xlabel=\"Date\", ylabel=\"Corrected PM2.5 (µg/m³)\", title=f\"Source contributions at station {station}\")\n",
++    "ax.legend(loc=\"best\", fontsize=8)\n",
++    "fig.autofmt_xdate()\n",
++    "fig.tight_layout()\n",
++    "fig.savefig(out / \"test_station_sources.png\", dpi=150)\n",
++    "plt.show()"
++   ],
++   "execution_count": null,
++   "outputs": []
++  },
++  {
++   "cell_type": "code",
++   "id": "8b3444b1cddb",
++   "metadata": {},
++   "source": [
++    "# Keep the per-row vector as valid JSON in the CSV, alongside numeric source columns.\n",
++    "export = points.copy()\n",
++    "export[\"s_corrected\"] = [json.dumps(np.asarray(v).tolist()) for v in export[\"s_corrected\"]]\n",
++    "export.to_csv(out / \"test_predictions.csv\", index=False)\n",
++    "pd.Series(metrics, name=\"test\").to_csv(out / \"test_metrics.csv\")\n",
++    "print(f\"Saved {len(points):,} held-out prediction records in {out}.\")"
++   ],
++   "execution_count": null,
++   "outputs": []
++  }
++ ],
++ "metadata": {
++  "kernelspec": {
++   "display_name": "Python 3 (ipykernel)",
++   "language": "python",
++   "name": "python3"
++  },
++  "language_info": {
++   "name": "python",
++   "version": "3.11"
++  }
++ },
++ "nbformat": 4,
++ "nbformat_minor": 5
++}
+diff --git a/notebooks/two_stage_db_regression_torch.ipynb b/notebooks/two_stage_db_regression_torch.ipynb
+new file mode 100644
+index 0000000..56790e1
+--- /dev/null
++++ b/notebooks/two_stage_db_regression_torch.ipynb
+@@ -0,0 +1,298 @@
++{
++ "cells": [
++  {
++   "cell_type": "markdown",
++   "id": "208f85241323",
++   "metadata": {},
++   "source": [
++    "# TwoStageDB: daily PM2.5 at held-out stations\n",
++    "\n",
++    "The **dual-branch** encoder combines a causal CNN over eight daily channels with a station-level MLP over seven land-use features. Three heads use the fused representation to correct the corresponding CMAQ source concentrations; their sum is the total prediction.\n",
++    "\n",
++    "Use your **real station-level PM2.5 CSV** with the columns below. The CSV was not included with the supplied Python reference files. Set `MILES_GUESS_PM25_CSV` to its path, or edit `data.csv_path` in `config/two_stage_db_regression_torch.yml`. The bundled Cabauw friction-velocity CSV cannot be used for this task.\n",
++    "\n",
++    "The configuration enables evidential regression. We train on one set of stations, select the epoch on a second set and evaluate once on the held-out test stations. The prediction is a daily estimate given the available predictors for that day; the split assesses spatial generalization, not forecasting into future years."
++   ]
++  },
++  {
++   "cell_type": "markdown",
++   "id": "fa712a765b88",
++   "metadata": {},
++   "source": [
++    "### 1. Load the matching configuration\n",
++    "\n",
++    "From the unpacked project, install the Torch and notebook extras in your Python 3.11 environment (`python -m pip install -e \".[torch,notebooks]\"`). Start Jupyter in the repository or its `notebooks` directory. The configuration defaults to CPU and specifies the optimizer settings, maximum epochs, patience and layer widths."
++   ]
++  },
++  {
++   "cell_type": "code",
++   "id": "4b3fe725a8c9",
++   "metadata": {},
++   "source": [
++    "from pathlib import Path\n",
++    "import json\n",
++    "import os\n",
++    "\n",
++    "import matplotlib.pyplot as plt\n",
++    "import numpy as np\n",
++    "import pandas as pd\n",
++    "import torch\n",
++    "import yaml\n",
++    "from IPython.display import display\n",
++    "from scipy.stats import t as student_t\n",
++    "from mlguess.torch.models import seed_everything\n",
++    "from mlguess.torch.nn_data import load_pm25_data, prepare_pm25\n",
++    "from mlguess.torch.nn_training import build_model, fit_model, predict_frame, regression_metrics\n",
++    "\n",
++    "CONFIG_NAME = \"two_stage_db_regression_torch.yml\"\n",
++    "ROOT = next((p for p in (Path.cwd(), *Path.cwd().parents)\n",
++    "             if (p / \"config\" / CONFIG_NAME).is_file()), None)\n",
++    "if ROOT is None:\n",
++    "    raise FileNotFoundError(f\"Open this notebook from the project containing config/{CONFIG_NAME}.\")\n",
++    "with (ROOT / \"config\" / CONFIG_NAME).open(encoding=\"utf-8\") as f:\n",
++    "    cfg = yaml.safe_load(f)\n",
++    "assert cfg[\"model\"][\"name\"] == \"TwoStageDB\"\n",
++    "train_cfg = cfg[\"training\"]\n",
++    "if train_cfg[\"device\"] == \"cpu\":\n",
++    "    torch.set_num_threads(cfg[\"runtime\"][\"cpu_threads\"])\n",
++    "seed_everything(train_cfg[\"seed\"])  # also seed the initial model weights\n",
++    "print(cfg[\"model\"], train_cfg)"
++   ],
++   "execution_count": null,
++   "outputs": []
++  },
++  {
++   "cell_type": "markdown",
++   "id": "ff709b87c48c",
++   "metadata": {},
++   "source": [
++    "### 2. Load and split station observations\n",
++    "\n",
++    "Supply one row per station and day. Use the same concentration units (µg/m³) for the PM2.5 target and CMAQ sources. The three source columns must remain in the reference order; `aod` is a predictor, **not a fourth additive source**.\n",
++    "\n",
++    "| Contents | CSV columns |\n",
++    "|---|---|\n",
++    "| Station, day and target | `stcode`, `date` (YYYY-MM-DD), `region5`, `pm25` (`lat` and `lon` are optional metadata) |\n",
++    "| CMAQ source estimates | `cmaq_pm25_bb`, `cmaq_pm25_anthro`, `cmaq_pm25_othr` |\n",
++    "| AOD and weather | `aod`, `wrf_pbl`, `wrf_temp`, `wrf_wspd`, `wrf_rh` |\n",
++    "| Land use and station descriptors | `population`, `elevation`, `builtup`, `rice`, `forest`, `minor_road_length`, `major_road_length` |\n",
++    "\n",
++    "The reference split is by station within region, with singleton regions reserved for training. Use enough stations for nonempty training, validation and test partitions. Scalers are fitted on training data only. Inputs must be finite; handle missing predictors using a treatment fitted on training data. Missing target observations are excluded from losses and metrics."
++   ]
++  },
++  {
++   "cell_type": "code",
++   "id": "2283f10cfd29",
++   "metadata": {},
++   "source": [
++    "csv_path = Path(os.environ.get(\"MILES_GUESS_PM25_CSV\", cfg[\"data\"][\"csv_path\"])).expanduser()\n",
++    "if not csv_path.is_absolute():\n",
++    "    csv_path = ROOT / csv_path\n",
++    "if not csv_path.is_file():\n",
++    "    raise FileNotFoundError(f\"Station PM2.5 CSV not found: {csv_path}. Set MILES_GUESS_PM25_CSV \"\n",
++    "                            \"or edit data.csv_path in the YAML, then rerun this cell.\")\n",
++    "split_args = {key: cfg[\"data\"][key] for key in (\"seed\", \"test_size\", \"val_size\")}\n",
++    "train_df, val_df, test_df = load_pm25_data(csv_path, split_val=True, **split_args)\n",
++    "parts = {\"training\": train_df, \"validation\": val_df, \"test\": test_df}\n",
++    "display(pd.DataFrame({s: {\"stations\": f.stcode.nunique(), \"rows\": len(f),\n",
++    "                          \"observed targets\": f.pm25.notna().sum()}\n",
++    "                      for s, f in parts.items()}).T)"
++   ],
++   "execution_count": null,
++   "outputs": []
++  },
++  {
++   "cell_type": "markdown",
++   "id": "0500af506053",
++   "metadata": {},
++   "source": [
++    "### 3. Prepare the inputs and initialize the model\n",
++    "\n",
++    "For each station the processor sorts by date, keeps rows with missing labels, and splits at missing daily dates. Contiguous series of the same length T are batched together; no convolution crosses a station or date gap. Each group supplies `[N, T, 8]` temporal inputs, `[N, 7]` static inputs and `[N, T]` targets. Static columns must stay constant within a station. The builder also supplies the training source/target scaler statistics. The model sums corrected sources in physical units; `threshold: null` gives each source a physical lower bound of zero."
++   ]
++  },
++  {
++   "cell_type": "code",
++   "id": "f268817a02f7",
++   "metadata": {},
++   "source": [
++    "prepared = prepare_pm25(train_df, val_df, test_df, model_name=cfg[\"model\"][\"name\"])\n",
++    "model = build_model(cfg[\"model\"][\"name\"], cfg[\"model\"][\"kwargs\"], prepared)\n",
++    "first_group = next(iter(prepared.train.tensors.values()))\n",
++    "print(\"First training group's input(s) and targets:\", [tuple(x.shape) for x in first_group])\n",
++    "print(f\"{type(model).__name__}: {sum(p.numel() for p in model.parameters()):,} parameters\")"
++   ],
++   "execution_count": null,
++   "outputs": []
++  },
++  {
++   "cell_type": "markdown",
++   "id": "057ba805800f",
++   "metadata": {},
++   "source": [
++    "### 4. Train and select the epoch on validation stations\n",
++    "\n",
++    "The evidential head learns a Normal–Inverse-Gamma (NIG) distribution for the total target. The `training` section of the configuration controls its evidence regularization. The two-stage objective also uses the reference cosine-diversity penalty on the learned source corrections (`lambda_sim`). The lowest validation-loss state is restored before testing. The notebook saves that state and the fitted scalers and feature order together. For inference on new stations, reload `PM25Preprocessor.load(out / \"preprocessor.json\")` from `mlguess.torch.nn_data` and use its `transform()` method with the saved weights; do not refit the scalers."
++   ]
++  },
++  {
++   "cell_type": "code",
++   "id": "b614e094a0f9",
++   "metadata": {},
++   "source": [
++    "out = ROOT / cfg[\"runtime\"][\"output_dir\"]\n",
++    "out.mkdir(parents=True, exist_ok=True)\n",
++    "history = fit_model(model, prepared.train, prepared.validation, **train_cfg,\n",
++    "                    checkpoint_path=out / \"best_state.pt\")\n",
++    "prepared.save(out / \"preprocessor.json\")\n",
++    "print(f\"Best epoch: {history.best_epoch}; epochs run: {history.epochs_run}\")\n",
++    "epochs = np.arange(1, history.epochs_run + 1)\n",
++    "fig, ax = plt.subplots(figsize=(7, 3))\n",
++    "ax.plot(epochs, history.train_loss, label=\"Training stations\")\n",
++    "ax.plot(epochs, history.val_loss, label=\"Validation stations\")\n",
++    "ax.axvline(history.best_epoch, color=\"0.4\", ls=\":\", label=\"Selected epoch\")\n",
++    "ax.set(xlabel=\"Epoch\", ylabel=\"Objective\")\n",
++    "ax.legend()\n",
++    "fig.tight_layout()\n",
++    "plt.show()"
++   ],
++   "execution_count": null,
++   "outputs": []
++  },
++  {
++   "cell_type": "markdown",
++   "id": "963924a137c3",
++   "metadata": {},
++   "source": [
++    "### 5. Evaluate all held-out stations\n",
++    "\n",
++    "For each observation the predicted location is $\\gamma_n$. In the MILES-GUESS paper's notation the aleatoric variance is $\\mathbb{E}[\\sigma_n^2]=\\beta_n/(\\alpha_n-1)$ and the epistemic variance is $\\operatorname{Var}(\\mu_n)=\\beta_n/[\\nu_n(\\alpha_n-1)]$. We use the full Student-$t$ predictive distribution to calculate a central 95% prediction interval: degrees of freedom $2\\alpha_n$, location $\\gamma_n$ and scale squared $\\beta_n(1+\\nu_n)/(\\alpha_n\\nu_n)$. This interval concerns a single PM2.5 measurement. The collector returns predictions in µg/m³ and variances in (µg/m³)²."
++   ]
++  },
++  {
++   "cell_type": "code",
++   "id": "23048e689fc0",
++   "metadata": {},
++   "source": [
++    "points = predict_frame(model, prepared.test, prepared, batch_size=cfg[\"runtime\"][\"prediction_batch_size\"],\n",
++    "                       device=train_cfg[\"device\"]).sort_values([\"stcode\", \"date\"]).reset_index(drop=True)\n",
++    "metrics = regression_metrics(points, target_col=\"pm25\")\n",
++    "if {\"nu\", \"alpha\", \"beta\"}.issubset(points.columns):\n",
++    "    nu, alpha, beta = (points[k].to_numpy() for k in (\"nu\", \"alpha\", \"beta\"))\n",
++    "    scale = np.sqrt(beta * (1.0 + nu) / (alpha * nu))\n",
++    "    half = student_t.ppf(0.975, df=2.0 * alpha) * scale\n",
++    "    points[\"lower95\"] = points[\"pred\"] - half\n",
++    "    points[\"upper95\"] = points[\"pred\"] + half\n",
++    "    observed = points.loc[np.isfinite(points[\"pm25\"])]\n",
++    "    metrics[\"coverage95\"] = observed[\"pm25\"].between(observed[\"lower95\"], observed[\"upper95\"]).mean()\n",
++    "display(pd.Series(metrics, name=\"Held-out station evaluation\").to_frame())"
++   ],
++   "execution_count": null,
++   "outputs": []
++  },
++  {
++   "cell_type": "markdown",
++   "id": "c250da305f2a",
++   "metadata": {},
++   "source": [
++    "**Check the source accounting.** `pred` is the total. For each row `s_corrected` is a vector of three concentrations in `prepared.source_names` order. The corresponding `corrected_<source>` columns retain the same numbers in separate fields. These are learned contributions constrained by the observed total. Without independent source-resolved observations, agreement with total PM2.5 does not validate each attribution."
++   ]
++  },
++  {
++   "cell_type": "code",
++   "id": "6356a0c7e4f7",
++   "metadata": {},
++   "source": [
++    "sources = list(prepared.source_names)\n",
++    "corrected_cols = [f\"corrected_{s}\" for s in sources]\n",
++    "corrected = np.stack(points[\"s_corrected\"].to_numpy())\n",
++    "np.testing.assert_allclose(corrected, points[corrected_cols].to_numpy(), rtol=1e-5, atol=1e-5)\n",
++    "np.testing.assert_allclose(corrected.sum(axis=1), points[\"pred\"], rtol=1e-5, atol=1e-4)\n",
++    "display(points[[\"stcode\", \"date\", \"pm25\", \"pred\", *corrected_cols]].head())"
++   ],
++   "execution_count": null,
++   "outputs": []
++  },
++  {
++   "cell_type": "markdown",
++   "id": "abddc88291b8",
++   "metadata": {},
++   "source": [
++    "### 6. Inspect predictions in time and save the test records\n",
++    "\n",
++    "Plot at most the first 90 calendar days for the test station with the most observed labels. The time axis preserves missing days as gaps. The station plot is illustrative; the reported metrics use **all** observed labels on the held-out stations."
++   ]
++  },
++  {
++   "cell_type": "code",
++   "id": "2f25eb477359",
++   "metadata": {},
++   "source": [
++    "station = points.loc[np.isfinite(points.pm25), \"stcode\"].value_counts().idxmax()\n",
++    "view = points.loc[points.stcode.eq(station)].copy()\n",
++    "view[\"date\"] = pd.to_datetime(view[\"date\"])\n",
++    "view = view.sort_values(\"date\").set_index(\"date\").asfreq(\"D\").iloc[:90]\n",
++    "fig, ax = plt.subplots(figsize=(10, 3.8))\n",
++    "if \"lower95\" in view:\n",
++    "    ax.fill_between(view.index, view.lower95, view.upper95, color=\"tab:blue\", alpha=0.16,\n",
++    "                    label=\"95% predictive interval\")\n",
++    "ax.plot(view.index, view.pred, color=\"tab:blue\", label=\"Prediction\")\n",
++    "ax.scatter(view.index, view.pm25, s=14, color=\"black\", label=\"Observed\")\n",
++    "ax.set(xlabel=\"Date\", ylabel=\"PM2.5 (µg/m³)\", title=f\"Held-out station {station}\")\n",
++    "ax.legend(loc=\"best\")\n",
++    "fig.autofmt_xdate()\n",
++    "fig.tight_layout()\n",
++    "fig.savefig(out / \"test_station.png\", dpi=150)\n",
++    "plt.show()"
++   ],
++   "execution_count": null,
++   "outputs": []
++  },
++  {
++   "cell_type": "code",
++   "id": "5cdcb9998e70",
++   "metadata": {},
++   "source": [
++    "fig, ax = plt.subplots(figsize=(10, 3.8))\n",
++    "ax.stackplot(view.index, *(view[c].to_numpy() for c in corrected_cols), labels=sources, alpha=0.75)\n",
++    "ax.plot(view.index, view.pred, color=\"black\", lw=1.25, label=\"Predicted total\")\n",
++    "ax.set(xlabel=\"Date\", ylabel=\"Corrected PM2.5 (µg/m³)\", title=f\"Source contributions at station {station}\")\n",
++    "ax.legend(loc=\"best\", fontsize=8)\n",
++    "fig.autofmt_xdate()\n",
++    "fig.tight_layout()\n",
++    "fig.savefig(out / \"test_station_sources.png\", dpi=150)\n",
++    "plt.show()"
++   ],
++   "execution_count": null,
++   "outputs": []
++  },
++  {
++   "cell_type": "code",
++   "id": "4fc466f673df",
++   "metadata": {},
++   "source": [
++    "# Keep the per-row vector as valid JSON in the CSV, alongside numeric source columns.\n",
++    "export = points.copy()\n",
++    "export[\"s_corrected\"] = [json.dumps(np.asarray(v).tolist()) for v in export[\"s_corrected\"]]\n",
++    "export.to_csv(out / \"test_predictions.csv\", index=False)\n",
++    "pd.Series(metrics, name=\"test\").to_csv(out / \"test_metrics.csv\")\n",
++    "print(f\"Saved {len(points):,} held-out prediction records in {out}.\")"
++   ],
++   "execution_count": null,
++   "outputs": []
++  }
++ ],
++ "metadata": {
++  "kernelspec": {
++   "display_name": "Python 3 (ipykernel)",
++   "language": "python",
++   "name": "python3"
++  },
++  "language_info": {
++   "name": "python",
++   "version": "3.11"
++  }
++ },
++ "nbformat": 4,
++ "nbformat_minor": 5
++}
+diff --git a/notebooks/two_stage_mlp_regression_torch.ipynb b/notebooks/two_stage_mlp_regression_torch.ipynb
+new file mode 100644
+index 0000000..68caad8
+--- /dev/null
++++ b/notebooks/two_stage_mlp_regression_torch.ipynb
+@@ -0,0 +1,298 @@
++{
++ "cells": [
++  {
++   "cell_type": "markdown",
++   "id": "f195ef25fbf8",
++   "metadata": {},
++   "source": [
++    "# TwoStageMLP: daily PM2.5 at held-out stations\n",
++    "\n",
++    "A shared **tabular MLP** encodes each station-day independently. Three heads each receive the shared representation and their corresponding CMAQ source value. The three corrected concentrations sum to the predicted total. This model has no temporal convolutions.\n",
++    "\n",
++    "Use your **real station-level PM2.5 CSV** with the columns below. The CSV was not included with the supplied Python reference files. Set `MILES_GUESS_PM25_CSV` to its path, or edit `data.csv_path` in `config/two_stage_mlp_regression_torch.yml`. The bundled Cabauw friction-velocity CSV cannot be used for this task.\n",
++    "\n",
++    "The configuration enables evidential regression. We train on one set of stations, select the epoch on a second set and evaluate once on the held-out test stations. The prediction is a daily estimate given the available predictors for that day; the split assesses spatial generalization, not forecasting into future years."
++   ]
++  },
++  {
++   "cell_type": "markdown",
++   "id": "0bf68bb44342",
++   "metadata": {},
++   "source": [
++    "### 1. Load the matching configuration\n",
++    "\n",
++    "From the unpacked project, install the Torch and notebook extras in your Python 3.11 environment (`python -m pip install -e \".[torch,notebooks]\"`). Start Jupyter in the repository or its `notebooks` directory. The configuration defaults to CPU and specifies the optimizer settings, maximum epochs, patience and layer widths."
++   ]
++  },
++  {
++   "cell_type": "code",
++   "id": "db9ac19b28df",
++   "metadata": {},
++   "source": [
++    "from pathlib import Path\n",
++    "import json\n",
++    "import os\n",
++    "\n",
++    "import matplotlib.pyplot as plt\n",
++    "import numpy as np\n",
++    "import pandas as pd\n",
++    "import torch\n",
++    "import yaml\n",
++    "from IPython.display import display\n",
++    "from scipy.stats import t as student_t\n",
++    "from mlguess.torch.models import seed_everything\n",
++    "from mlguess.torch.nn_data import load_pm25_data, prepare_pm25\n",
++    "from mlguess.torch.nn_training import build_model, fit_model, predict_frame, regression_metrics\n",
++    "\n",
++    "CONFIG_NAME = \"two_stage_mlp_regression_torch.yml\"\n",
++    "ROOT = next((p for p in (Path.cwd(), *Path.cwd().parents)\n",
++    "             if (p / \"config\" / CONFIG_NAME).is_file()), None)\n",
++    "if ROOT is None:\n",
++    "    raise FileNotFoundError(f\"Open this notebook from the project containing config/{CONFIG_NAME}.\")\n",
++    "with (ROOT / \"config\" / CONFIG_NAME).open(encoding=\"utf-8\") as f:\n",
++    "    cfg = yaml.safe_load(f)\n",
++    "assert cfg[\"model\"][\"name\"] == \"TwoStageMLP\"\n",
++    "train_cfg = cfg[\"training\"]\n",
++    "if train_cfg[\"device\"] == \"cpu\":\n",
++    "    torch.set_num_threads(cfg[\"runtime\"][\"cpu_threads\"])\n",
++    "seed_everything(train_cfg[\"seed\"])  # also seed the initial model weights\n",
++    "print(cfg[\"model\"], train_cfg)"
++   ],
++   "execution_count": null,
++   "outputs": []
++  },
++  {
++   "cell_type": "markdown",
++   "id": "82ab7fa78592",
++   "metadata": {},
++   "source": [
++    "### 2. Load and split station observations\n",
++    "\n",
++    "Supply one row per station and day. Use the same concentration units (µg/m³) for the PM2.5 target and CMAQ sources. The three source columns must remain in the reference order; `aod` is a predictor, **not a fourth additive source**.\n",
++    "\n",
++    "| Contents | CSV columns |\n",
++    "|---|---|\n",
++    "| Station, day and target | `stcode`, `date` (YYYY-MM-DD), `region5`, `pm25` (`lat` and `lon` are optional metadata) |\n",
++    "| CMAQ source estimates | `cmaq_pm25_bb`, `cmaq_pm25_anthro`, `cmaq_pm25_othr` |\n",
++    "| AOD and weather | `aod`, `wrf_pbl`, `wrf_temp`, `wrf_wspd`, `wrf_rh` |\n",
++    "| Land use and station descriptors | `population`, `elevation`, `builtup`, `rice`, `forest`, `minor_road_length`, `major_road_length` |\n",
++    "\n",
++    "The reference split is by station within region, with singleton regions reserved for training. Use enough stations for nonempty training, validation and test partitions. Scalers are fitted on training data only. Inputs must be finite; handle missing predictors using a treatment fitted on training data. Missing target observations are excluded from losses and metrics."
++   ]
++  },
++  {
++   "cell_type": "code",
++   "id": "464a94cda8f4",
++   "metadata": {},
++   "source": [
++    "csv_path = Path(os.environ.get(\"MILES_GUESS_PM25_CSV\", cfg[\"data\"][\"csv_path\"])).expanduser()\n",
++    "if not csv_path.is_absolute():\n",
++    "    csv_path = ROOT / csv_path\n",
++    "if not csv_path.is_file():\n",
++    "    raise FileNotFoundError(f\"Station PM2.5 CSV not found: {csv_path}. Set MILES_GUESS_PM25_CSV \"\n",
++    "                            \"or edit data.csv_path in the YAML, then rerun this cell.\")\n",
++    "split_args = {key: cfg[\"data\"][key] for key in (\"seed\", \"test_size\", \"val_size\")}\n",
++    "train_df, val_df, test_df = load_pm25_data(csv_path, split_val=True, **split_args)\n",
++    "parts = {\"training\": train_df, \"validation\": val_df, \"test\": test_df}\n",
++    "display(pd.DataFrame({s: {\"stations\": f.stcode.nunique(), \"rows\": len(f),\n",
++    "                          \"observed targets\": f.pm25.notna().sum()}\n",
++    "                      for s, f in parts.items()}).T)"
++   ],
++   "execution_count": null,
++   "outputs": []
++  },
++  {
++   "cell_type": "markdown",
++   "id": "e700429e7fec",
++   "metadata": {},
++   "source": [
++    "### 3. Prepare the inputs and initialize the model\n",
++    "\n",
++    "The tabular model takes individual rows `[N, 15]`, with each target shaped `[N, 1]`. The builder also supplies the training source/target scaler statistics. The model sums corrected sources in physical units; `threshold: null` gives each source a physical lower bound of zero."
++   ]
++  },
++  {
++   "cell_type": "code",
++   "id": "7e83839a04af",
++   "metadata": {},
++   "source": [
++    "prepared = prepare_pm25(train_df, val_df, test_df, model_name=cfg[\"model\"][\"name\"])\n",
++    "model = build_model(cfg[\"model\"][\"name\"], cfg[\"model\"][\"kwargs\"], prepared)\n",
++    "first_group = next(iter(prepared.train.tensors.values()))\n",
++    "print(\"First training group's input(s) and targets:\", [tuple(x.shape) for x in first_group])\n",
++    "print(f\"{type(model).__name__}: {sum(p.numel() for p in model.parameters()):,} parameters\")"
++   ],
++   "execution_count": null,
++   "outputs": []
++  },
++  {
++   "cell_type": "markdown",
++   "id": "68f439ef7389",
++   "metadata": {},
++   "source": [
++    "### 4. Train and select the epoch on validation stations\n",
++    "\n",
++    "The evidential head learns a Normal–Inverse-Gamma (NIG) distribution for the total target. The `training` section of the configuration controls its evidence regularization. The two-stage objective also uses the reference cosine-diversity penalty on the learned source corrections (`lambda_sim`). The lowest validation-loss state is restored before testing. The notebook saves that state and the fitted scalers and feature order together. For inference on new stations, reload `PM25Preprocessor.load(out / \"preprocessor.json\")` from `mlguess.torch.nn_data` and use its `transform()` method with the saved weights; do not refit the scalers."
++   ]
++  },
++  {
++   "cell_type": "code",
++   "id": "cfa7e53f0c88",
++   "metadata": {},
++   "source": [
++    "out = ROOT / cfg[\"runtime\"][\"output_dir\"]\n",
++    "out.mkdir(parents=True, exist_ok=True)\n",
++    "history = fit_model(model, prepared.train, prepared.validation, **train_cfg,\n",
++    "                    checkpoint_path=out / \"best_state.pt\")\n",
++    "prepared.save(out / \"preprocessor.json\")\n",
++    "print(f\"Best epoch: {history.best_epoch}; epochs run: {history.epochs_run}\")\n",
++    "epochs = np.arange(1, history.epochs_run + 1)\n",
++    "fig, ax = plt.subplots(figsize=(7, 3))\n",
++    "ax.plot(epochs, history.train_loss, label=\"Training stations\")\n",
++    "ax.plot(epochs, history.val_loss, label=\"Validation stations\")\n",
++    "ax.axvline(history.best_epoch, color=\"0.4\", ls=\":\", label=\"Selected epoch\")\n",
++    "ax.set(xlabel=\"Epoch\", ylabel=\"Objective\")\n",
++    "ax.legend()\n",
++    "fig.tight_layout()\n",
++    "plt.show()"
++   ],
++   "execution_count": null,
++   "outputs": []
++  },
++  {
++   "cell_type": "markdown",
++   "id": "822abfeb3016",
++   "metadata": {},
++   "source": [
++    "### 5. Evaluate all held-out stations\n",
++    "\n",
++    "For each observation the predicted location is $\\gamma_n$. In the MILES-GUESS paper's notation the aleatoric variance is $\\mathbb{E}[\\sigma_n^2]=\\beta_n/(\\alpha_n-1)$ and the epistemic variance is $\\operatorname{Var}(\\mu_n)=\\beta_n/[\\nu_n(\\alpha_n-1)]$. We use the full Student-$t$ predictive distribution to calculate a central 95% prediction interval: degrees of freedom $2\\alpha_n$, location $\\gamma_n$ and scale squared $\\beta_n(1+\\nu_n)/(\\alpha_n\\nu_n)$. This interval concerns a single PM2.5 measurement. The collector returns predictions in µg/m³ and variances in (µg/m³)²."
++   ]
++  },
++  {
++   "cell_type": "code",
++   "id": "ded46d6230cb",
++   "metadata": {},
++   "source": [
++    "points = predict_frame(model, prepared.test, prepared, batch_size=cfg[\"runtime\"][\"prediction_batch_size\"],\n",
++    "                       device=train_cfg[\"device\"]).sort_values([\"stcode\", \"date\"]).reset_index(drop=True)\n",
++    "metrics = regression_metrics(points, target_col=\"pm25\")\n",
++    "if {\"nu\", \"alpha\", \"beta\"}.issubset(points.columns):\n",
++    "    nu, alpha, beta = (points[k].to_numpy() for k in (\"nu\", \"alpha\", \"beta\"))\n",
++    "    scale = np.sqrt(beta * (1.0 + nu) / (alpha * nu))\n",
++    "    half = student_t.ppf(0.975, df=2.0 * alpha) * scale\n",
++    "    points[\"lower95\"] = points[\"pred\"] - half\n",
++    "    points[\"upper95\"] = points[\"pred\"] + half\n",
++    "    observed = points.loc[np.isfinite(points[\"pm25\"])]\n",
++    "    metrics[\"coverage95\"] = observed[\"pm25\"].between(observed[\"lower95\"], observed[\"upper95\"]).mean()\n",
++    "display(pd.Series(metrics, name=\"Held-out station evaluation\").to_frame())"
++   ],
++   "execution_count": null,
++   "outputs": []
++  },
++  {
++   "cell_type": "markdown",
++   "id": "a5a7bdf6a2c3",
++   "metadata": {},
++   "source": [
++    "**Check the source accounting.** `pred` is the total. For each row `s_corrected` is a vector of three concentrations in `prepared.source_names` order. The corresponding `corrected_<source>` columns retain the same numbers in separate fields. These are learned contributions constrained by the observed total. Without independent source-resolved observations, agreement with total PM2.5 does not validate each attribution."
++   ]
++  },
++  {
++   "cell_type": "code",
++   "id": "b041d3733330",
++   "metadata": {},
++   "source": [
++    "sources = list(prepared.source_names)\n",
++    "corrected_cols = [f\"corrected_{s}\" for s in sources]\n",
++    "corrected = np.stack(points[\"s_corrected\"].to_numpy())\n",
++    "np.testing.assert_allclose(corrected, points[corrected_cols].to_numpy(), rtol=1e-5, atol=1e-5)\n",
++    "np.testing.assert_allclose(corrected.sum(axis=1), points[\"pred\"], rtol=1e-5, atol=1e-4)\n",
++    "display(points[[\"stcode\", \"date\", \"pm25\", \"pred\", *corrected_cols]].head())"
++   ],
++   "execution_count": null,
++   "outputs": []
++  },
++  {
++   "cell_type": "markdown",
++   "id": "4e059c11285b",
++   "metadata": {},
++   "source": [
++    "### 6. Inspect predictions in time and save the test records\n",
++    "\n",
++    "Plot at most the first 90 calendar days for the test station with the most observed labels. The time axis preserves missing days as gaps. The station plot is illustrative; the reported metrics use **all** observed labels on the held-out stations."
++   ]
++  },
++  {
++   "cell_type": "code",
++   "id": "c4dc95036e91",
++   "metadata": {},
++   "source": [
++    "station = points.loc[np.isfinite(points.pm25), \"stcode\"].value_counts().idxmax()\n",
++    "view = points.loc[points.stcode.eq(station)].copy()\n",
++    "view[\"date\"] = pd.to_datetime(view[\"date\"])\n",
++    "view = view.sort_values(\"date\").set_index(\"date\").asfreq(\"D\").iloc[:90]\n",
++    "fig, ax = plt.subplots(figsize=(10, 3.8))\n",
++    "if \"lower95\" in view:\n",
++    "    ax.fill_between(view.index, view.lower95, view.upper95, color=\"tab:blue\", alpha=0.16,\n",
++    "                    label=\"95% predictive interval\")\n",
++    "ax.plot(view.index, view.pred, color=\"tab:blue\", label=\"Prediction\")\n",
++    "ax.scatter(view.index, view.pm25, s=14, color=\"black\", label=\"Observed\")\n",
++    "ax.set(xlabel=\"Date\", ylabel=\"PM2.5 (µg/m³)\", title=f\"Held-out station {station}\")\n",
++    "ax.legend(loc=\"best\")\n",
++    "fig.autofmt_xdate()\n",
++    "fig.tight_layout()\n",
++    "fig.savefig(out / \"test_station.png\", dpi=150)\n",
++    "plt.show()"
++   ],
++   "execution_count": null,
++   "outputs": []
++  },
++  {
++   "cell_type": "code",
++   "id": "fed236d0080f",
++   "metadata": {},
++   "source": [
++    "fig, ax = plt.subplots(figsize=(10, 3.8))\n",
++    "ax.stackplot(view.index, *(view[c].to_numpy() for c in corrected_cols), labels=sources, alpha=0.75)\n",
++    "ax.plot(view.index, view.pred, color=\"black\", lw=1.25, label=\"Predicted total\")\n",
++    "ax.set(xlabel=\"Date\", ylabel=\"Corrected PM2.5 (µg/m³)\", title=f\"Source contributions at station {station}\")\n",
++    "ax.legend(loc=\"best\", fontsize=8)\n",
++    "fig.autofmt_xdate()\n",
++    "fig.tight_layout()\n",
++    "fig.savefig(out / \"test_station_sources.png\", dpi=150)\n",
++    "plt.show()"
++   ],
++   "execution_count": null,
++   "outputs": []
++  },
++  {
++   "cell_type": "code",
++   "id": "2b728b81c281",
++   "metadata": {},
++   "source": [
++    "# Keep the per-row vector as valid JSON in the CSV, alongside numeric source columns.\n",
++    "export = points.copy()\n",
++    "export[\"s_corrected\"] = [json.dumps(np.asarray(v).tolist()) for v in export[\"s_corrected\"]]\n",
++    "export.to_csv(out / \"test_predictions.csv\", index=False)\n",
++    "pd.Series(metrics, name=\"test\").to_csv(out / \"test_metrics.csv\")\n",
++    "print(f\"Saved {len(points):,} held-out prediction records in {out}.\")"
++   ],
++   "execution_count": null,
++   "outputs": []
++  }
++ ],
++ "metadata": {
++  "kernelspec": {
++   "display_name": "Python 3 (ipykernel)",
++   "language": "python",
++   "name": "python3"
++  },
++  "language_info": {
++   "name": "python",
++   "version": "3.11"
++  }
++ },
++ "nbformat": 4,
++ "nbformat_minor": 5
++}

@@ -1,12 +1,36 @@
 # Validation report
 
-Date: **2026-10-18**. Local revision: **2025.1.0+py311.8**.
+Date: **2026-11-03**. Local revision: **2025.1.0+py311.9**.
 Upstream base: `69775bef5d65b50e53692d860092e0295b4e7d23`.
 
-This revision restores the authors' examples and extends their held-out
-assessment. It does not replace their datasets or architectures with generated
-examples. `AUTHORS_NOTEBOOK_UPDATES.md` documents preservation and the specific
-compatibility/calculation errors corrected.
+## PM2.5 station regression extension (py311.9)
+
+The complete test suite on Linux, Python 3.11.17, CPU PyTorch 2.14.1 and NumPy
+2.4.6 passed: **565 passed, 4 skipped**. Three skips require GPUs; the fourth
+requires a distributed socket forbidden in this environment. Native Windows,
+macOS, and GPU execution were not exercised here.
+
+All five architectures were trained in both point and evidential modes.
+Comparing point-mode models with the supplied reference implementations at
+matched nonconstant weights gave a maximum absolute output difference of
+4.18 × 10⁻⁷ or less; input gradients agreed within tolerance. Checks covered
+causal ordering, per-station grouping, missing labels and dates, source sums,
+affine variance conversion, checkpoint restoration and unlabeled inference.
+
+All **41 code cells in the five new notebooks** executed in order and produced
+**13 figures** using a clearly identified 240-row station-schema test fixture.
+Each run retained 55 held-out prediction rows (51 with measured fixture targets),
+and reloading the weights and preprocessor reproduced the predictions from
+unlabeled inputs. The notebooks were validated using nbformat and executed in
+fresh IPython sessions: this host does not permit a Jupyter kernel to bind a
+local socket. The user's PM2.5 station CSV was not supplied; fixture scores and
+figures are not distributed as scientific results.
+
+The new wheel was installed separately and all five architectures imported and
+produced predictions from the wheel. See `validation/pm25-*` for the test
+results, notebook execution record, reference comparisons and preservation
+check. The earlier authors' notebooks, datasets and YAML configurations remain
+unchanged; `AUTHORS_NOTEBOOK_UPDATES.md` documents their earlier revisions.
 
 ## Paper-notation update (py311.8)
 
