@@ -1,5 +1,6 @@
 include LICENSE README.md SCIENTIFIC_CHANGES.md VALIDATION.md UNCERTAINTY.md AUTHORS_NOTEBOOK_UPDATES.md
 include PM25_REGRESSION.md
+include data/sample_cabauw_surface_layer.csv
 include notebooks/*_regression_torch.ipynb
 include environment*.yml
 recursive-include mlguess *.py VERSION
@@ -9,3 +10,11 @@ recursive-include requirements *.txt
 recursive-include config *.yml *.yaml
 recursive-include docs *.md *.rst *.py *.png Makefile make.bat
 recursive-include .github *.yml
+
+# Educational source, notebooks and verification ship in the main distribution.
+recursive-include educational *.py *.ipynb *.md *.json
+include educational/pyproject.toml educational/MANIFEST.in educational/LICENSE
+recursive-include educational/requirements *.txt
+prune educational/build
+prune educational/dist
+prune educational/src/*.egg-info

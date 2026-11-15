@@ -1,0 +1,131 @@
+{
+  "edition": "pm25-edl-edu 0.1.0",
+  "runtime": "Linux CPU / CPython 3.11.17",
+  "data": "Synthetic schema fixtures only for validation; no research data in archive.",
+  "independent_pytest_passed": 35,
+  "notebook_execution": [
+    {
+      "notebook": "hpt/cnn1d_hpt.ipynb",
+      "code_cells": 5,
+      "inline_pngs": 1
+    },
+    {
+      "notebook": "hpt/db_hpt.ipynb",
+      "code_cells": 5,
+      "inline_pngs": 1
+    },
+    {
+      "notebook": "hpt/mlp_hpt.ipynb",
+      "code_cells": 5,
+      "inline_pngs": 1
+    },
+    {
+      "notebook": "hpt/two_stage_cnn1d_hpt.ipynb",
+      "code_cells": 5,
+      "inline_pngs": 1
+    },
+    {
+      "notebook": "hpt/two_stage_db_hpt.ipynb",
+      "code_cells": 5,
+      "inline_pngs": 1
+    },
+    {
+      "notebook": "hpt/two_stage_mlp_hpt.ipynb",
+      "code_cells": 5,
+      "inline_pngs": 1
+    },
+    {
+      "notebook": "usage/cnn1d_usage.ipynb",
+      "code_cells": 9,
+      "inline_pngs": 3
+    },
+    {
+      "notebook": "usage/db_usage.ipynb",
+      "code_cells": 9,
+      "inline_pngs": 3
+    },
+    {
+      "notebook": "usage/mlp_usage.ipynb",
+      "code_cells": 9,
+      "inline_pngs": 3
+    },
+    {
+      "notebook": "usage/two_stage_cnn1d_usage.ipynb",
+      "code_cells": 9,
+      "inline_pngs": 3
+    },
+    {
+      "notebook": "usage/two_stage_db_usage.ipynb",
+      "code_cells": 9,
+      "inline_pngs": 3
+    },
+    {
+      "notebook": "usage/two_stage_mlp_usage.ipynb",
+      "code_cells": 9,
+      "inline_pngs": 3
+    }
+  ],
+  "output_checks": {
+    "test": "synthetic-schema QA only",
+    "archs": [
+      {
+        "model": "CNN1D",
+        "rows_predicted": 21,
+        "observations_scored": 13,
+        "plots": 3
+      },
+      {
+        "model": "DB",
+        "rows_predicted": 21,
+        "observations_scored": 13,
+        "plots": 3
+      },
+      {
+        "model": "MLP",
+        "rows_predicted": 21,
+        "observations_scored": 13,
+        "plots": 3
+      },
+      {
+        "model": "TwoStageCNN1D",
+        "rows_predicted": 21,
+        "observations_scored": 13,
+        "plots": 3
+      },
+      {
+        "model": "TwoStageDB",
+        "rows_predicted": 21,
+        "observations_scored": 13,
+        "plots": 3
+      },
+      {
+        "model": "TwoStageMLP",
+        "rows_predicted": 21,
+        "observations_scored": 13,
+        "plots": 3
+      }
+    ],
+    "exported_pngs": 18,
+    "max_source_sum_diff_round_trip_csv": 0.0
+  },
+  "reload": {
+    "model": "TwoStageDB",
+    "reload_without_training": true,
+    "byte_identical": [
+      "model.pt",
+      "test_predictions.csv",
+      "test_scores.csv"
+    ]
+  },
+  "source_reference_sha256": {
+    "nn_training.py": "8af6ba21a16cc5feeae30c3846c55271440a8821fe0875295c318719dc75e223",
+    "nn_data.py": "1052080280dfbd0ba1081d4f3cb0bff98e6ec03eee948dd5ca6ae3d94ab9104d",
+    "cnn1d_hpt.ipynb": "debcc3d3a756cf5c969496347c91ed393bf939d7ce9224c9a99da0b03fa25c67",
+    "nn_models.py": "7a91e962d9518c65287fb661461202f1f78a70abab1661d1a712c4947993ffc1"
+  },
+  "fresh_linux_editable_install": {
+    "pip_check": "passed",
+    "model_contracts_passed": 6,
+    "split_cli_schema_audit": "passed"
+  }
+}

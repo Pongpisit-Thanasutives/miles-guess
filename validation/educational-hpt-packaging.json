@@ -1,0 +1,21 @@
+{
+  "checked_at": "2026-11-15",
+  "release": "2025.1.0+py311.12",
+  "build": "python -m build --no-isolation; wheel built from new source archive",
+  "editable_install": "Passed; installed main release +py311.12 with both namespaces",
+  "pip_check": "No broken requirements found.",
+  "wheel_install": "Installed into a separate target; both namespaces verified to load from that target",
+  "wheel_checks": {
+    "models": 6,
+    "model_contracts": "passed",
+    "split_cli_self_test": "passed"
+  },
+  "content_checks": {
+    "wheel_python_matches_source": true,
+    "source_archive_educational_files_match": true,
+    "notebooks_in_source_archive": 12,
+    "current_validation_report_in_source_archive": true
+  },
+  "dependencies": "No changes; same pinned Python 3.11 CPU profiles as previous release",
+  "limitations": "Linux CPU checks only; no native macOS, Windows, GPU or external Jupyter transport execution."
+}

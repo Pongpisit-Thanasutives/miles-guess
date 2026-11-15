@@ -1,0 +1,81 @@
+{
+  "checked_at": "2026-11-15",
+  "platform": "Linux x86-64 CPU",
+  "python": "3.11.18",
+  "environment": {
+    "torch": "2.14.1+cpu",
+    "numpy": "2.4.6",
+    "scipy": "1.17.1",
+    "pandas": "2.3.3",
+    "scikit-learn": "1.9.1",
+    "matplotlib": "3.11.2",
+    "optuna": "5.0.0"
+  },
+  "distribution": "pm25-edl-edu==0.1.1",
+  "installation": {
+    "fresh_environment": true,
+    "original_directory_editable": "passed with optuna,notebooks,test extras and pinned Linux CPU profile",
+    "detached_sdist_editable": "passed; import source verified inside detached standalone tree",
+    "wheel": "passed; import source verified inside isolated environment site-packages",
+    "pip_check": "No broken requirements found.",
+    "main_library_absent": true,
+    "mlguess_import_absent": true,
+    "absent_distributions": [
+      "miles-guess",
+      "echo-opt",
+      "wandb",
+      "tensorflow"
+    ]
+  },
+  "tests": {
+    "educational_passed": 43,
+    "failed": 0,
+    "seconds": 17.58,
+    "installed_wheel_model_contracts": 6
+  },
+  "cli": {
+    "pm25_split_audit": "passed for editable and wheel installations; identical reports",
+    "module_self_test": "passed"
+  },
+  "study_compatibility": {
+    "previous_release": "2025.1.0+py311.12",
+    "model": "TwoStageDB",
+    "load_best": "passed for original-directory editable, detached editable and wheel installs",
+    "history_unchanged": true
+  },
+  "notebooks": {
+    "notebooks": 2,
+    "code_cells": 14,
+    "inline_figures": 4,
+    "saved_figures": 3,
+    "model": "TwoStageDB",
+    "hpt_trials": 1,
+    "max_epochs": 2,
+    "train_targets": 21,
+    "test_observations": 13,
+    "scores_recomputed": true,
+    "exact_source_sums": true,
+    "variance_decomposition": true,
+    "source": "detached standalone sdist",
+    "execution": "fresh in-process kernel per notebook"
+  },
+  "limits": [
+    "Native macOS, Windows, GPU execution not tested.",
+    "Notebook smoke uses schema-matched synthetic fixtures; no real-data performance claim.",
+    "Fresh in-process IPython kernels were used because this host restricts sockets.",
+    "All 12 notebook files are unchanged; a representative two-stage HPT/usage pair was executed for the new installer."
+  ],
+  "main_release": "2025.1.0+py311.13",
+  "preservation": {
+    "educational_modules": 9,
+    "educational_notebooks": 12,
+    "main_python_files": 87
+  },
+  "main_package_checks": {
+    "wheel_install": "passed; both namespaces loaded from installed wheel target",
+    "six_model_contracts": "passed",
+    "sdist_contains_nested_installer": true,
+    "sdist_excludes_nested_build_artifacts": true,
+    "cpu_profiles": "local copies identical to main profiles"
+  }
+}

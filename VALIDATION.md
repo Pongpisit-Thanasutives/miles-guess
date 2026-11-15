@@ -1,7 +1,141 @@
 # Validation report
 
-Date: **2026-11-03**. Local revision: **2025.1.0+py311.9**.
+Date: **2026-11-15**. Local revision: **2025.1.0+py311.13**.
 Upstream base: `69775bef5d65b50e53692d860092e0295b4e7d23`.
+
+## Standalone educational installer (py311.13)
+
+The optional installer in `educational/` builds `pm25-edl-edu` 0.1.1 with
+Optuna and notebook extras. A fresh Python **3.11.18** Linux CPU environment
+using its local pinned profile passed **43 educational tests** and `pip check`.
+Neither `miles-guess` nor ECHO, W&B or TensorFlow was installed; importing
+`mlguess` was unavailable, while `pm25_edl` and `pm25-split` worked.
+
+Installation from the detached educational source archive also passed.
+Its TwoStageDB tuning and usage notebooks executed all **14 code cells**,
+producing **4 inline figures** and **3 saved figures**. The smoke budget was
+one tuning trial and at most two epochs per fit on the explicit schema
+fixture. Saved training/test scores, observed-label masking, exact corrected
+source sums and variance decomposition were checked. Both installation
+locations loaded an existing py311.12 study without changing its history.
+
+The standalone wheel provides only `pm25_edl`; the main wheel still provides
+both namespaces. Each installed wheel passed all six model contract checks. The
+main source archive includes the independent installer and local CPU
+profiles while excluding nested build artifacts. All **9 educational
+runtime modules**, **12 notebooks** and **87 main Python files** remain
+byte-identical to py311.12, preserving the study code fingerprints.
+
+Native macOS, Windows and GPU execution were not performed. The notebook
+checks used fresh in-process kernels on Linux because this host restricts
+socket access. Full earlier runtime/notebook evidence below remains
+historical; this update changes packaging and documentation only. See
+[educational/validation-standalone-installer.json](educational/validation-standalone-installer.json).
+
+## Educational tuning and score update (py311.12)
+
+On Linux CPU with CPython **3.11.18**, PyTorch **2.14.1+cpu**, NumPy **2.4.6**
+and Optuna **5.0.0**, the combined suite passed **478 tests**, with **6 skipped**
+for optional Keras/bridgescaler dependencies, blocked CPU Gloo sockets and
+unavailable GPUs. All **43 educational tests** passed. The pinned editable
+installation passed `pip check`.
+
+Checks cover the supported feature/model combinations, exact Optuna weight
+ranges, single-stage/disabled cosine behavior, filled-target training scores
+and unchanged observed-only validation/test scoring. A real training study
+resumed from one to two trials. A SQLite study with a lightweight objective
+resumed from 25 to 50 while preserving the first 25 trials and scaler;
+repeating the same total did no work. Failure-history exports and protection
+against missing databases were exercised. Pre-update fixed-weight studies
+remain incompatible under the existing provenance checks and need a fresh
+run directory.
+
+All **12 notebooks** executed on explicitly labeled schema-matched mock data:
+**84 code cells**, **24 inline figures**, **18 nonblank saved test plots**.
+Each model used one tuning trial and at most two epochs per fit. Each saved
+training score used **21 filled labels**; test scoring used only the **13
+observed labels** among **21 exported test rows**. Saved scores matched
+recomputation. Corrected source contributions summed exactly to each
+two-stage total after round-trip CSV parsing, and variance decomposition
+checks passed.
+
+Byte comparisons confirm that all **87 pre-existing main Python files** and
+the educational plotting, splitting and verification modules are unchanged.
+All notebooks retain their original structure and plotting cells. NIG and
+Student-t equations and the backbone configurations were preserved.
+
+These are software integration tests, not research results. Native macOS,
+Windows and GPU runs were not performed. Notebook tests used separate
+in-process IPython kernels because this host restricts socket access.
+Machine-readable evidence: [educational/validation-hpt-update.json](educational/validation-hpt-update.json).
+The sections below are historical reports for earlier releases.
+
+## Integrated educational edition (py311.11)
+
+The main `miles-guess` distribution now installs both `mlguess` and `pm25_edl`.
+The educational code, notebooks, guides and tests live in `educational/`.
+There is no nested package installer or second distribution. The
+`.[educational]` extra installs the CPU-ready PyTorch dependencies, Optuna and
+notebook tools, while the existing core and other extras remain available.
+
+On Linux x86-64, CPython **3.11.18**, PyTorch **2.14.1+cpu**, NumPy **2.4.6** and
+Optuna **5.0.0**, the combined test run passed **470 tests**, with **6 skipped**
+for unavailable optional Keras/bridgescaler dependencies, prohibited Gloo
+socket creation and unavailable GPUs. Other optional Keras test modules are
+not collected without Keras. Editable installation and dependency checks
+passed. The built wheel and a wheel rebuilt from the source archive provide
+both namespaces and the working `pm25-split` command, without a separate
+`pm25-edl-edu` distribution. A migration from the old educational editable
+install (uninstall old, install combined) was exercised successfully.
+
+Byte comparisons show that all **87** pre-existing main Python files and all
+**9** educational implementation files remain unchanged. This retains the
+educational model/training code fingerprints used by saved studies. Each
+educational notebook changed only its path-discovery cell; the scientific
+cells and data contracts are preserved. The root test runner includes the
+educational tests, with a skip when the optional PyTorch dependency is absent.
+
+Binary-only resolution of `.[educational]` against the provided CPU profiles
+matched all **123** macOS and **122** Windows pinned dependencies. These verify
+package availability, not native execution. The macOS target remains native
+Apple Silicon with macOS 14 or later; Intel/Rosetta is not included.
+
+All **12 educational notebooks** ran on explicitly labeled schema-matched
+mock data in fresh in-process IPython kernels: **84 code cells**, **24 inline
+figures**, and **18** nonblank saved diagnostic PNGs. Each model exported
+all **21** test rows and scored only the **13** with observations; all three
+two-stage CSV exports retained exact source sums on round-trip parsing.
+Real station data were not provided; these are integration checks, not
+research performance. The host disallows Jupyter socket binding, so external
+kernel transport was not validated.
+
+See `validation/educational-integration.json` for this release’s verification.
+The earlier sections and `educational/validation.json` retain their historical
+test evidence and do not substitute for a current run.
+
+## Optional Optuna extra (py311.10)
+
+On Linux x86-64 with CPython 3.11.17, a clean editable base installation did
+not install Optuna, PyTorch, ECHO or Weights & Biases. Installing `.[optuna]` in
+that environment installed Optuna 5.0.0 without changing any existing versions
+or installing those other optional tools. Separately, the complete editable
+`.[torch,optuna]` install with the supplied Linux CPU dependency list passed
+`pip check`. Two actual learning-rate trials trained the Cabauw evidential DNN
+on CPU and were evaluated on disjoint validation observations. Matplotlib
+rendered the time-series and optimization-history PNGs; ordinary and Optuna
+plots also rendered in a separate in-process IPython inline check.
+
+The standalone example uses the regression notebook’s bundled Cabauw CSV,
+year split, scaling and evidential DNN. The smoke budget of four batches per
+trial is illustrative. The held-out test years are excluded from tuning.
+
+A new binary-only dependency resolution against the updated distribution
+reproduced all 122 Windows x86-64 and 123 macOS 14+ arm64 third-party pins, with
+target-compatible wheels. These are package availability checks; native
+Windows/macOS execution, GUI windows and transport to a Jupyter frontend were
+not tested here. See `validation/optuna-py311.json` for results. The scientific
+models, data, original training configurations and notebooks did not change;
+the historical full-suite results below refer to py311.9.
 
 ## PM2.5 station regression extension (py311.9)
 

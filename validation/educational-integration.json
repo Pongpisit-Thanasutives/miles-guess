@@ -1,0 +1,255 @@
+{
+  "release": "2025.1.0+py311.11",
+  "all_existing_main_python_files_unchanged": 87,
+  "educational_module_files_unchanged": 9,
+  "notebook_changed_cells": {
+    "cnn1d_hpt.ipynb": [
+      2
+    ],
+    "db_hpt.ipynb": [
+      2
+    ],
+    "mlp_hpt.ipynb": [
+      2
+    ],
+    "two_stage_cnn1d_hpt.ipynb": [
+      2
+    ],
+    "two_stage_db_hpt.ipynb": [
+      2
+    ],
+    "two_stage_mlp_hpt.ipynb": [
+      2
+    ],
+    "cnn1d_usage.ipynb": [
+      2
+    ],
+    "db_usage.ipynb": [
+      2
+    ],
+    "mlp_usage.ipynb": [
+      2
+    ],
+    "two_stage_cnn1d_usage.ipynb": [
+      2
+    ],
+    "two_stage_db_usage.ipynb": [
+      2
+    ],
+    "two_stage_mlp_usage.ipynb": [
+      2
+    ]
+  },
+  "platform_resolution": {
+    "macos": {
+      "pins_matched": 123,
+      "runtime_tested": false
+    },
+    "windows": {
+      "pins_matched": 122,
+      "runtime_tested": false
+    }
+  },
+  "runtime": {
+    "os": "Linux x86_64",
+    "python": "3.11.18",
+    "torch": "2.14.1+cpu",
+    "numpy": "2.4.6",
+    "optuna": "5.0.0"
+  },
+  "tests": {
+    "passed": 470,
+    "skipped": 6,
+    "optional_keras_test_modules_not_collected": true
+  },
+  "installation": {
+    "editable": "passed",
+    "wheel": "passed",
+    "wheel_rebuilt_from_sdist": "passed",
+    "standalone_to_integrated_migration": "passed",
+    "distribution": "miles-guess",
+    "imports": [
+      "mlguess",
+      "pm25_edl"
+    ],
+    "entrypoint": "pm25-split",
+    "pip_check": "passed"
+  },
+  "notebook_execution": [
+    {
+      "notebook": "hpt/cnn1d_hpt.ipynb",
+      "code_cells": 5,
+      "inline_pngs": 1
+    },
+    {
+      "notebook": "hpt/db_hpt.ipynb",
+      "code_cells": 5,
+      "inline_pngs": 1
+    },
+    {
+      "notebook": "hpt/mlp_hpt.ipynb",
+      "code_cells": 5,
+      "inline_pngs": 1
+    },
+    {
+      "notebook": "hpt/two_stage_cnn1d_hpt.ipynb",
+      "code_cells": 5,
+      "inline_pngs": 1
+    },
+    {
+      "notebook": "hpt/two_stage_db_hpt.ipynb",
+      "code_cells": 5,
+      "inline_pngs": 1
+    },
+    {
+      "notebook": "hpt/two_stage_mlp_hpt.ipynb",
+      "code_cells": 5,
+      "inline_pngs": 1
+    },
+    {
+      "notebook": "usage/cnn1d_usage.ipynb",
+      "code_cells": 9,
+      "inline_pngs": 3
+    },
+    {
+      "notebook": "usage/db_usage.ipynb",
+      "code_cells": 9,
+      "inline_pngs": 3
+    },
+    {
+      "notebook": "usage/mlp_usage.ipynb",
+      "code_cells": 9,
+      "inline_pngs": 3
+    },
+    {
+      "notebook": "usage/two_stage_cnn1d_usage.ipynb",
+      "code_cells": 9,
+      "inline_pngs": 3
+    },
+    {
+      "notebook": "usage/two_stage_db_usage.ipynb",
+      "code_cells": 9,
+      "inline_pngs": 3
+    },
+    {
+      "notebook": "usage/two_stage_mlp_usage.ipynb",
+      "code_cells": 9,
+      "inline_pngs": 3
+    }
+  ],
+  "output_checks": {
+    "notebooks": [
+      {
+        "notebook": "hpt/cnn1d_hpt.ipynb",
+        "code_cells": 5,
+        "inline_pngs": 1
+      },
+      {
+        "notebook": "hpt/db_hpt.ipynb",
+        "code_cells": 5,
+        "inline_pngs": 1
+      },
+      {
+        "notebook": "hpt/mlp_hpt.ipynb",
+        "code_cells": 5,
+        "inline_pngs": 1
+      },
+      {
+        "notebook": "hpt/two_stage_cnn1d_hpt.ipynb",
+        "code_cells": 5,
+        "inline_pngs": 1
+      },
+      {
+        "notebook": "hpt/two_stage_db_hpt.ipynb",
+        "code_cells": 5,
+        "inline_pngs": 1
+      },
+      {
+        "notebook": "hpt/two_stage_mlp_hpt.ipynb",
+        "code_cells": 5,
+        "inline_pngs": 1
+      },
+      {
+        "notebook": "usage/cnn1d_usage.ipynb",
+        "code_cells": 9,
+        "inline_pngs": 3
+      },
+      {
+        "notebook": "usage/db_usage.ipynb",
+        "code_cells": 9,
+        "inline_pngs": 3
+      },
+      {
+        "notebook": "usage/mlp_usage.ipynb",
+        "code_cells": 9,
+        "inline_pngs": 3
+      },
+      {
+        "notebook": "usage/two_stage_cnn1d_usage.ipynb",
+        "code_cells": 9,
+        "inline_pngs": 3
+      },
+      {
+        "notebook": "usage/two_stage_db_usage.ipynb",
+        "code_cells": 9,
+        "inline_pngs": 3
+      },
+      {
+        "notebook": "usage/two_stage_mlp_usage.ipynb",
+        "code_cells": 9,
+        "inline_pngs": 3
+      }
+    ],
+    "rows_and_plots": [
+      {
+        "model": "MLP",
+        "predictions": 21,
+        "scored": 13,
+        "source_sum_exact": null,
+        "plots": 3
+      },
+      {
+        "model": "CNN1D",
+        "predictions": 21,
+        "scored": 13,
+        "source_sum_exact": null,
+        "plots": 3
+      },
+      {
+        "model": "DB",
+        "predictions": 21,
+        "scored": 13,
+        "source_sum_exact": null,
+        "plots": 3
+      },
+      {
+        "model": "TwoStageMLP",
+        "predictions": 21,
+        "scored": 13,
+        "source_sum_exact": true,
+        "plots": 3
+      },
+      {
+        "model": "TwoStageCNN1D",
+        "predictions": 21,
+        "scored": 13,
+        "source_sum_exact": true,
+        "plots": 3
+      },
+      {
+        "model": "TwoStageDB",
+        "predictions": 21,
+        "scored": 13,
+        "source_sum_exact": true,
+        "plots": 3
+      }
+    ],
+    "runtime": "Linux x86_64 CPU / Python 3.11.18",
+    "method": "Fresh in-process IPython per notebook; mock data only"
+  },
+  "limits": [
+    "Synthetic-schema notebook fixture only, not research performance",
+    "Native macOS/Windows/GPU runtime not tested",
+    "Fresh in-process IPython kernels; Jupyter socket transport not tested"
+  ]
+}

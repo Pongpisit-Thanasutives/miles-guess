@@ -1,0 +1,62 @@
+{
+  "release": "2025.1.0+py311.10",
+  "base_no_optuna_torch_echo_wandb": true,
+  "standalone_optuna_changed_preexisting_versions": false,
+  "combined_pip_check": "No broken requirements found.",
+  "combined_linux_cpu": {
+    "python": "3.11.17",
+    "versions": {
+      "miles-guess": "2025.1.0+py311.10",
+      "numpy": "2.4.6",
+      "torch": "2.14.1+cpu",
+      "matplotlib": "3.11.2",
+      "optuna": "5.0.0"
+    },
+    "mode": "editable, CPU",
+    "missing_packages": [
+      "echo",
+      "wandb"
+    ],
+    "dataset": "bundled Cabauw sample",
+    "model": "evidential DNN from config/evidential_regression_torch.yml",
+    "training/validation_rows": [
+      128,
+      32
+    ],
+    "selected_on": "validation MAE",
+    "completed_trials": 2,
+    "trial_values": [
+      0.27840936183929443,
+      0.283485472202301
+    ],
+    "png_bytes": {
+      "time_series": 43281,
+      "tuning_history": 23630
+    },
+    "status": "passed"
+  },
+  "inline_linux_ipython": {
+    "custom_mime_png_bytes": 10028,
+    "optuna_mime_png_bytes": 23820,
+    "probe": "inline",
+    "python": "3.11.17",
+    "matplotlib": "3.11.2",
+    "backend": "inline"
+  },
+  "wheel_resolution_only": {
+    "macos": {
+      "target": "macos",
+      "third_party_pins": 123,
+      "exact_match": true,
+      "sha256": "14ae447df1f848b67a307e706d69971089d0672a90c6691e6b0e08cf9c5aaaa7",
+      "new_resolution_log": "Resolved 124 packages in 14.98s"
+    },
+    "windows": {
+      "target": "windows",
+      "third_party_pins": 122,
+      "exact_match": true,
+      "sha256": "5569c72633423914e61b9a616544b71f4ab0db39b4f45b5d56e69c576ba52078",
+      "new_resolution_log": "Resolved 123 packages in 15.85s"
+    }
+  }
+}

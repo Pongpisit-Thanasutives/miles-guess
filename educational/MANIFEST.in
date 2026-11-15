@@ -1,0 +1,8 @@
+include LICENSE README.md METHODS.md FILES.md VALIDATION.md
+include validation*.json
+recursive-include src/pm25_edl *.py
+recursive-include notebooks *.ipynb
+recursive-include tests *.py
+recursive-include requirements *.txt
+prune build
+prune dist

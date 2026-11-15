@@ -67,3 +67,30 @@ validated constraint set selects PyTorch 2.14.1 and NumPy 2.4.6. Windows,
 Apple Silicon macOS, and Linux CI jobs are configured with validated and
 latest-compatible dependencies; those native CI jobs were not executed for
 this delivery. See ``VALIDATION.md`` for the actual test record and limits.
+
+Optional Optuna studies
+-----------------------
+
+With a working CPU PyTorch environment, run the following from the updated project root::
+
+    python -m pip install -c requirements/validated-py311.txt -e ".[torch,optuna]"
+
+For a clean CPU environment with pinned JupyterLab and Matplotlib dependencies,
+use the platform command in the top-level README under “CPU notebooks with Optuna”.
+The standalone extra installs Optuna 5.0.0 without ECHO or Weights & Biases.
+The original ``tuning`` extra remains available for applications that require them.
+
+Integrated educational PM2.5 workflows
+--------------------------------------
+
+The educational source and notebooks now ship under ``educational/`` in the
+main project. Install from the project root::
+
+    python -m pip install -e ".[educational]"
+
+For the validated CPU dependency versions, use the platform-specific requirement
+file in the top-level README. This one installation supplies both ``mlguess``
+and ``pm25_edl``; a separate educational package is unnecessary. Before migrating
+an existing environment, uninstall the old ``pm25-edl-edu`` distribution so that
+two installations do not provide the same import namespace. Your saved CSVs and
+study directories can remain in place via ``PM25_DATA_DIR`` and ``PM25_RUN_DIR``.

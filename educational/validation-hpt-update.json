@@ -1,0 +1,101 @@
+{
+  "checked_at": "2026-11-15",
+  "environment": {
+    "platform": "Linux CPU",
+    "python": "3.11.18",
+    "torch": "2.14.1+cpu",
+    "numpy": "2.4.6",
+    "optuna": "5.0.0",
+    "matplotlib": "3.11.2",
+    "requirements": "requirements/optuna-cpu/linux-py311.txt",
+    "install": "editable main package with educational,test extras",
+    "pip_check": "No broken requirements found."
+  },
+  "tests": {
+    "educational": {
+      "passed": 43,
+      "failed": 0,
+      "seconds": 15.01
+    },
+    "combined": {
+      "passed": 478,
+      "failed": 0,
+      "skipped": 6,
+      "seconds": 71.86
+    },
+    "skip_reasons": {
+      "optional_keras_not_installed": 1,
+      "optional_bridgescaler_not_installed": 1,
+      "host_blocks_cpu_gloo_socket": 1,
+      "gpu_unavailable": 3
+    },
+    "requested_change_checks": [
+      "Two-stage baseline rejected; at-bb source conservation and all allowed feature/model combinations",
+      "Disabling cosine removes its source-delta gradient; single-stage loss is unaffected by cosine weight",
+      "evidential_weight exact log range 0.0001 to 0.1; lambda_sim exact stepped range 0.02 to 0.05 only for enabled two-stage models",
+      "Training scores use pm25_filled; observed pm25 scoring remains strict and excludes missing observations",
+      "Real MLP training study resumes from one to two trials with prior trial preserved",
+      "Real SQLite study resumes from 25 to 50 trials with cheap objective stub; previous values, parameters, timestamps, attributes and scaler preserved",
+      "Same target trial count does not rerun; lower target raises without modifying history",
+      "Failed later trial preserves completed scores and exports COMPLETE/FAIL history",
+      "Missing SQLite database alongside saved summaries raises without overwriting history"
+    ]
+  },
+  "notebooks": {
+    "passed": 12,
+    "hpt": 6,
+    "usage": 6,
+    "executed_code_cells": 84,
+    "inline_pngs": 24,
+    "saved_test_pngs": 18,
+    "execution_mode": "fresh interpreter and in-process IPython kernel per notebook; inline Matplotlib backend",
+    "budget_per_model": {
+      "hpt_trials": 1,
+      "max_epochs": 2
+    },
+    "fixture": {
+      "rows_per_split": 21,
+      "training_targets": 21,
+      "observed_validation_targets": 13,
+      "observed_test_targets": 13
+    },
+    "output_checks": [
+      "All twelve notebooks executed every code cell without errors",
+      "All six HPT exports contain training metrics and the requested conditional search weights",
+      "All six usage notebooks saved train_predictions.csv, train_scores.csv, test_predictions.csv and test_scores.csv",
+      "Saved train/test metrics agree with recomputation from CSV predictions",
+      "All two-stage exported source contributions sum exactly to predicted totals after round-trip CSV parsing",
+      "All exported total variances equal aleatoric plus epistemic variances",
+      "All inline and saved plots decode and contain nonblank image data"
+    ]
+  },
+  "limitations": [
+    "Small schema-matched synthetic fixture only; these checks do not establish predictive performance on research data",
+    "Linux CPU runtime validation; native macOS, Windows and GPU execution not tested in this workspace",
+    "Notebook execution bypassed ZeroMQ transport because this host restricts sockets",
+    "The 25-to-50 trial test uses a cheap objective stub to isolate persistence; numerical resume is separately checked with actual one-to-two-trial training",
+    "Passing tests does not prove every function error-free or validate scientific conclusions"
+  ],
+  "release": "2025.1.0+py311.12",
+  "educational_component": "0.1.1",
+  "preservation": {
+    "unchanged_main_python_files": 87,
+    "unchanged_educational_modules": [
+      "educational/src/pm25_edl/plots.py",
+      "educational/src/pm25_edl/split_cli.py",
+      "educational/src/pm25_edl/verification.py"
+    ],
+    "notebooks": "Original cell counts, IDs, metadata and plotting cells preserved; only requested settings/scoring/import/prose/assertions changed."
+  },
+  "educational_code_sha256": {
+    "__init__.py": "d3859eff26473037815c656ddf1661941111b030662d66f18389072ebcf27da4",
+    "metrics.py": "7c4e2919d77e34b611667aff79ed22ec9f49c8539753b9b215912b6a1b034ea6",
+    "nn_data.py": "7d579f8b135df79fe982837526b828455a61e055964c67541a5082c6ac205126",
+    "nn_models.py": "6e9963f38e19023d2dc271cc21f2eb4df58999f4ad75c745093b8dee5fa270ad",
+    "nn_training.py": "a707cf036a5d08103f512d880605946e30636c39b1b179cf423ed04c52c3274c",
+    "plots.py": "5567f94adbcc7af8bb5daf04b3a943451576220bf9de3efb5e3637e30b835984",
+    "split_cli.py": "227ef4ee7e3812aea97271c7a6abc0d7d8f31b6b76b4c2847b133f9fbbd4e2dc",
+    "tuning.py": "ce5c74a2bf3161d6cb9dbb79c455c2f4deced8ce27d260c0caf78a52704b61ec",
+    "verification.py": "dd567c73b3d842671189f2c13b4787917375fff62b63e450d760d9eeeb75d7ae"
+  }
+}

@@ -1,7 +1,36 @@
 # Scientific preservation and verified corrections
 
 Base: ai2es/miles-guess commit `69775bef5d65b50e53692d860092e0295b4e7d23`.
-Local revision: `2025.1.0+py311.9`; this is not an upstream release.
+Local revision: `2025.1.0+py311.13`; this is not an upstream release.
+
+The py311.13 update adds an optional standalone installer inside `educational/`.
+It installs the same `pm25_edl` source files as the main distribution, with
+Optuna and notebook extras. All runtime modules, notebooks, equations and
+training/scoring behavior remain byte-identical to py311.12. Saved-study code
+fingerprints are preserved; the existing data/settings/dependency checks
+still apply. Use one installer per environment because both distributions
+provide the same educational namespace and command.
+
+The py311.12 update changes only the educational component's requested
+feature policy, loss controls, tuning and score reporting. Two-stage source
+correction now requires at-bb or at-bb-aod predictors. Source cosine loss can
+be disabled and never applies to single-stage models. Optuna searches
+`evidential_weight` on [1e-4, 1e-1] logarithmically and, for enabled two-stage
+models, `lambda_sim` on [0.02, 0.05] in steps of 0.01. Training diagnostics
+use `pm25_filled`; validation/test selection and scores still use observed
+`pm25`. Trial summaries are saved after every trial and compatible SQLite
+histories resume to the requested total. Prior fixed-weight studies require
+a new run directory. NIG/Student-t mathematics, source-sum accounting,
+original backbones, plotting and the main `mlguess` code are unchanged.
+
+The py311.11 update integrates the existing educational edition into this
+distribution. Neither the main scientific implementation nor the educational
+models, likelihood, preprocessing, training, metrics or plotting were altered.
+Only installation, notebook root discovery, documentation and packaging change.
+
+The py311.10 update adds a standalone Optuna installation option and an optional
+tuning example. It does not change models, losses, uncertainty calculations,
+existing notebooks, datasets or training configurations.
 
 The py311.9 extension adds the five PM2.5 station architectures described in
 [PM25_REGRESSION.md](PM25_REGRESSION.md). The point variants follow the supplied

@@ -21,11 +21,117 @@ This modernized source package is based on upstream commit
 get these changes; `pip install miles-guess` from PyPI does not install this
 modernization.
 
-The current validation environment uses **Python 3.11.17, PyTorch 2.14.1 CPU,
-and NumPy 2.4.6**. Package compatibility bounds remain `torch>=2.5.1,<3` and
+The integrated release was tested with **Python 3.11.18, PyTorch 2.14.1 CPU,
+and NumPy 2.4.6**; earlier scientific audits used Python 3.11.17. Package compatibility bounds remain `torch>=2.5.1,<3` and
 `numpy>=2,<3`; the constraints below select the versions used for this audit.
 See [VALIDATION.md](VALIDATION.md) for executed tests and limitations.
 Native Windows/macOS CI is configured but has not been run for this delivery.
+
+### Educational PM2.5 models — included in this package
+
+Release `2025.1.0+py311.13` includes the full educational edition under
+[educational/](educational/README.md): six EDL architectures, 12 notebooks,
+the split → tuning → evaluation pipeline and tests. One main-package install
+provides both the existing `mlguess` API and the educational `pm25_edl` API.
+
+With compatible CPU PyTorch already installed, run this from **the main project
+root** (the folder containing this README and `pyproject.toml`):
+
+```shell
+python -m pip install -e ".[educational]"
+python -m pip check
+python -m pm25_edl.verification
+python -m jupyter lab
+```
+
+For a **fresh Python 3.11 CPU environment** with the pinned notebook stack:
+
+```shell
+conda create --no-default-packages --override-channels -c conda-forge -n miles-guess python=3.11 pip -y
+conda activate miles-guess
+```
+
+Then select one install command:
+
+| Platform | Command (from the main project root) |
+|---|---|
+| macOS 14+ native Apple Silicon | `python -m pip install -r requirements/optuna-cpu/macos-py311.txt -e ".[educational]"` |
+| Windows x86-64 | `python -m pip install -r requirements/optuna-cpu/windows-py311.txt -e ".[educational]"` |
+| Linux x86-64, compatible glibc | `python -m pip install -r requirements/optuna-cpu/linux-py311.txt -e ".[educational]"` |
+
+The extra includes PyTorch, Optuna and the Jupyter plotting tools; ECHO and W&B
+are not requested. Open `educational/notebooks/hpt/` and then its matching
+`educational/notebooks/usage/` notebook in Jupyter. Educational data/runs remain
+within `educational/` by default, or at your `PM25_DATA_DIR` / `PM25_RUN_DIR`.
+
+**Educational-only installation:** the same `educational/` directory also has
+its own installer. In a separate environment with compatible CPU PyTorch,
+enter `educational/` and run `python -m pip install -e ".[optuna,notebooks]"`.
+This installs `pm25-edl-edu`, providing only `pm25_edl` and `pm25-split`.
+Use `.[optuna]` if you do not need notebook tools. The
+[educational guide](educational/README.md) includes fresh Python 3.11 CPU
+setup commands and local pinned profiles. Both installation routes use the
+same source files; this installer update leaves the py311.12 scientific code
+and saved-study fingerprints unchanged.
+
+**Upgrading an environment with the separate educational package:** first run
+`python -m pip uninstall pm25-edl-edu`, then install this main project as above.
+Choose one distribution per environment: both provide `pm25_edl` and
+`pm25-split`. To switch from the main installation to educational-only,
+uninstall `miles-guess` before running the educational installer.
+Keep your previous data and run directories; the educational guide explains
+how to point the notebooks at them. The py311.12 update added loss-weight
+tuning, a source-similarity switch and separate training scores. Start a new
+run directory for studies created with the previous fixed-weight search;
+compatible studies created with this version resume when you increase
+`n_trials`.
+
+### CPU notebooks with Optuna (optional)
+
+Install this local release (`2025.1.0+py311.13`) to use Optuna 5.0.0 for your own
+hyperparameter studies. The extra is named `optuna`; plain `pip install -e .`
+and `.[torch]` do not request it. The earlier `tuning` extra is still available
+for applications that use ECHO and Weights & Biases.
+
+**Already have the CPU PyTorch environment from this project?** From the **newly
+extracted** folder containing `pyproject.toml`, run:
+
+```bash
+python -m pip install -c requirements/validated-py311.txt -e ".[torch,optuna]"
+python -m pip check
+```
+
+**Starting fresh, or replacing a kernel that crashed during plotting?** Leave the
+old environment intact. From this project folder:
+
+```bash
+conda create --no-default-packages --override-channels -c conda-forge -n miles-optuna311 python=3.11 pip -y
+conda activate miles-optuna311
+```
+
+Run **one** of the following commands. It installs the editable project, CPU
+PyTorch, Optuna, JupyterLab, and the pinned plotting stack together. Internet
+access is required to download the dependencies.
+
+| Your Python platform | Command |
+| --- | --- |
+| macOS 14+ on Apple Silicon (native arm64 Python) | `python -m pip install -r requirements/optuna-cpu/macos-py311.txt -e ".[torch,optuna]"` |
+| Windows x86-64 | `python -m pip install -r requirements/optuna-cpu/windows-py311.txt -e ".[torch,optuna]"` |
+| Linux x86-64 (compatible glibc) | `python -m pip install -r requirements/optuna-cpu/linux-py311.txt -e ".[torch,optuna]"` |
+
+Then run `python -m pip check` and `python -m jupyter lab` in that environment.
+Choose its Python kernel; `sys.executable` in the notebook should point to that
+environment. For static notebook plots, put `%matplotlib inline` before importing
+`matplotlib.pyplot`. These CPU profiles use NumPy 2.4.6, Matplotlib 3.11.2,
+PyTorch 2.14.1, Optuna 5.0.0 and JupyterLab 4.6.6. The macOS profile does not
+support Intel or Rosetta. See [VALIDATION.md](VALIDATION.md) for what was tested.
+
+For a runnable example using the project's Cabauw data, see
+[the Optuna quickstart](examples/optuna_torch_quickstart.py).
+Run `python examples/optuna_torch_quickstart.py --plot tuning-history.png` to try
+three learning rates on the evidential model and save the optimization history.
+The tutorial evaluates validation years only; its four training batches per trial
+are an illustration, not the training budget to use for a paper.
 
 ### Conda setup (recommended)
 
@@ -124,7 +230,9 @@ notebook tools, use `.[torch]` in the constrained install command.
 | `keras` | Keras 3 API; set `KERAS_BACKEND=torch` before importing Keras |
 | `tensorflow`, `tensorflow_gpu`, `jax` | Optional Keras backends; separate backend validation is required |
 | `data` | Parquet/NetCDF/xarray and grouped scalers for weather datasets |
-| `tuning` | Optuna/ECHO and experiment-tracking applications |
+| `educational` | PyTorch CPU-ready educational models, Optuna and Jupyter; six model notebook pairs |
+| `optuna` | Standalone Optuna 5.0.0 studies; no ECHO or Weights & Biases |
+| `tuning` | Original ECHO/Optuna and experiment-tracking applications |
 | `geospatial` | Cartopy and Hagelslag plotting/evaluation |
 | `legacy` | Dependencies for deprecated Keras utilities |
 | `notebooks`, `docs`, `test` | Notebook, documentation, and test tools |
