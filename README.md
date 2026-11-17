@@ -25,7 +25,7 @@ The integrated release was tested with **Python 3.11.18, PyTorch 2.14.1 CPU,
 and NumPy 2.4.6**; earlier scientific audits used Python 3.11.17. Package compatibility bounds remain `torch>=2.5.1,<3` and
 `numpy>=2,<3`; the constraints below select the versions used for this audit.
 See [VALIDATION.md](VALIDATION.md) for executed tests and limitations.
-Native Windows/macOS CI is configured but has not been run for this delivery.
+Native Windows/macOS execution has not been tested for this delivery.
 
 ### Educational PM2.5 models — included in this package
 

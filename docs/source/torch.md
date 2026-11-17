@@ -3,8 +3,8 @@
 Use the [installation guide](install.rst) or the [top-level README](../../README.md)
 for Python 3.11 CPU setup. The audited environment uses PyTorch 2.14.1 and
 NumPy 2.4.6. Windows/Linux use the official CPU wheel index; native Apple
-Silicon macOS 14+ uses the ordinary PyPI wheel. Native platform CI is configured,
-but Windows/macOS runs were not executed for this delivery.
+Silicon macOS 14+ uses the ordinary PyPI wheel. Native Windows/macOS runs
+were not executed for this delivery.
 
 The [notebook guide](../../notebooks/README.md) is the entry point for synthetic
 regression/classification examples and adapting the models to your own data.

@@ -1,0 +1,45 @@
+{
+  "checked_at": "2026-11-16",
+  "environment": {
+    "platform": "Linux x86-64 CPU",
+    "python": "3.11.18",
+    "torch": "2.14.1+cpu",
+    "numpy": "2.4.6",
+    "optuna": "5.0.0",
+    "install": "fresh standalone educational editable with optuna,notebooks,test extras and pinned Linux CPU profile",
+    "pip_check": "No broken requirements found."
+  },
+  "tests": {
+    "existing_educational": 43,
+    "new_multi_objective": 15,
+    "total_passed": 58,
+    "failed": 0,
+    "skipped": 0,
+    "seconds": 20.51
+  },
+  "verified": [
+    "Actual one-epoch MLP and TwoStageDB studies returned observed validation R2, NLL and mean Winkler in the declared maximize/minimize/minimize order.",
+    "Training and validation trial attributes matched independent calls to their existing scorers (21 filled training labels and 13 observed validation labels).",
+    "Two-stage prediction source contributions summed exactly to total prediction; existing model/preprocessor and search-weight contracts were preserved.",
+    "An actual MLP training study resumed from 1 to 2 trials without altering the first trial.",
+    "Controlled trade-off vectors produced the known Pareto set and lowest-NLL representative; an explicitly selected Pareto trial loaded, and a dominated trial selection was rejected.",
+    "CSV exports preserved objective values, Pareto flags, raw width exponents and resolved model widths without ambiguity.",
+    "JSON exports preserved full settings/metrics, including null for undefined training R2; negative finite NLL was accepted.",
+    "A 15-trial adaptive TPE run and a 5-to-15 resumed run produced identical parameters and objective values, preserving prior timestamps/attributes and scaler bytes.",
+    "Repeating the completed trial target performed no new fits; reducing the requested total was rejected.",
+    "Failed and zero-allocation interrupted studies exported coherent empty/failed history and resumed successfully.",
+    "Nonfinite objective values, constant/missing/single-observation validation targets, mismatched manifest/settings and missing SQLite history were rejected.",
+    "Single-objective study directories were not overwritten or reused."
+  ],
+  "limitations": [
+    "Linux CPU validation only; native macOS, Windows and GPU execution were not performed.",
+    "Actual fits used small schema-matched fixtures and a one-epoch budget; no research predictive performance is claimed.",
+    "Longer adaptive sampler/Pareto tests used inexpensive controlled objective stubs through the real multiobjective adapter, sampler and SQLite persistence.",
+    "No existing notebook files were modified or executed; this request adds a Python tuning module."
+  ],
+  "source_sha256": {
+    "educational/src/pm25_edl/multi_obs_tuning.py": "263784ecb418d218dfd912e96fc31aed512a6b4d840c33040759ea34e0391c41",
+    "educational/tests/test_multi_obs_tuning.py": "dee189f284976f82c0bd7df490da0eb72f2aab641f1e50405e313983a7771820"
+  },
+  "preservation": "All pre-existing project files were byte-identical to the input archive before rebuilding distribution artifacts and SHA256SUMS. No existing code, notebooks, installer metadata or dependency requirements were edited."
+}

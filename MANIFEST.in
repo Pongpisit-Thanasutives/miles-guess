@@ -9,7 +9,6 @@ recursive-include examples *.py
 recursive-include requirements *.txt
 recursive-include config *.yml *.yaml
 recursive-include docs *.md *.rst *.py *.png Makefile make.bat
-recursive-include .github *.yml
 
 # Educational source, notebooks and verification ship in the main distribution.
 recursive-include educational *.py *.ipynb *.md *.json

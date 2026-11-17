@@ -63,10 +63,9 @@ TensorFlow and JAX, geospatial packages, tuning services, and documentation
 tools are separate optional extras.
 
 Package compatibility remains ``torch>=2.5.1,<3`` and ``numpy>=2,<3``. The
-validated constraint set selects PyTorch 2.14.1 and NumPy 2.4.6. Windows,
-Apple Silicon macOS, and Linux CI jobs are configured with validated and
-latest-compatible dependencies; those native CI jobs were not executed for
-this delivery. See ``VALIDATION.md`` for the actual test record and limits.
+validated constraint set selects PyTorch 2.14.1 and NumPy 2.4.6. Native
+Windows/macOS runs were not executed for this delivery. See ``VALIDATION.md``
+for the actual test record and limits.
 
 Optional Optuna studies
 -----------------------
